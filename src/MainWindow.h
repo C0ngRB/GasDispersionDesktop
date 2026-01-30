@@ -7,11 +7,13 @@
 #include <QtWidgets/QCheckBox>
 #include <QtWidgets/QPushButton>
 #include <QtWidgets/QPlainTextEdit>
+#include <QtWidgets/QComboBox>
+#include <QtWidgets/QLineEdit>
 
 #include "Simulator.h"
+#include "ExternalCfdBackend.h"
 
-class MainWindow : public QMainWindow
-{
+class MainWindow : public QMainWindow {
   Q_OBJECT
 public:
   explicit MainWindow(QWidget *parent = nullptr);
@@ -21,11 +23,18 @@ private slots:
   void onPauseClicked();
   void onResetClicked();
   void onTick();
+  void onExternalLog(const QString& s);
+  void onExternalFrame(const CsvFrameReader::Frame& f);
+  void onExternalFinished(bool ok, const QString& msg);
 
 private:
+  enum class BackendMode { Internal, External };
+
   // UI
   QLabel *view_{nullptr};
   QLabel *status_{nullptr};
+  QComboBox *cbBackend_{nullptr};
+  QLineEdit *leRunner_{nullptr};
 
   QDoubleSpinBox *sbWindSpeed_{nullptr}, *sbWindDir_{nullptr};
   QDoubleSpinBox *sbLx_{nullptr}, *sbLy_{nullptr};
@@ -46,9 +55,16 @@ private:
   Simulator *sim_{nullptr};
   QTimer *timer_{nullptr};
   bool running_{false};
+  BackendMode mode_{BackendMode::Internal};
+
+  // External backend
+  ExternalCfdBackend *ext_{nullptr};
+  CsvFrameReader::Frame lastFrame_;
+  bool hasLastFrame_{false};
 
   SimParams readParams() const;
   void rebuildSimulator();
-  void renderField();
+  void renderFieldInternal();
+  void renderFieldExternal(const CsvFrameReader::Frame& f);
   void appendLog(const QString &s);
 };
