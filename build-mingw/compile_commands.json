@@ -1,0 +1,38 @@
+[
+{
+  "directory": "C:/Users/congr/Desktop/GasDispersionDesktop/build-mingw",
+  "command": "C:\\Qt\\Tools\\mingw1310_64\\bin\\g++.exe -DMINGW_HAS_SECURE_API=1 -DQT_CORE_LIB -DQT_GUI_LIB -DQT_NO_DEBUG -DQT_WIDGETS_LIB -DUNICODE -DWIN32 -DWIN64 -D_ENABLE_EXTENDED_ALIGNED_STORAGE -D_UNICODE -D_WIN64 @CMakeFiles/GasDispersionDesktop.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles\\GasDispersionDesktop.dir\\GasDispersionDesktop_autogen\\mocs_compilation.cpp.obj -c C:\\Users\\congr\\Desktop\\GasDispersionDesktop\\build-mingw\\GasDispersionDesktop_autogen\\mocs_compilation.cpp",
+  "file": "C:/Users/congr/Desktop/GasDispersionDesktop/build-mingw/GasDispersionDesktop_autogen/mocs_compilation.cpp",
+  "output": "CMakeFiles/GasDispersionDesktop.dir/GasDispersionDesktop_autogen/mocs_compilation.cpp.obj"
+},
+{
+  "directory": "C:/Users/congr/Desktop/GasDispersionDesktop/build-mingw",
+  "command": "C:\\Qt\\Tools\\mingw1310_64\\bin\\g++.exe -DMINGW_HAS_SECURE_API=1 -DQT_CORE_LIB -DQT_GUI_LIB -DQT_NO_DEBUG -DQT_WIDGETS_LIB -DUNICODE -DWIN32 -DWIN64 -D_ENABLE_EXTENDED_ALIGNED_STORAGE -D_UNICODE -D_WIN64 @CMakeFiles/GasDispersionDesktop.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles\\GasDispersionDesktop.dir\\src\\main.cpp.obj -c C:\\Users\\congr\\Desktop\\GasDispersionDesktop\\src\\main.cpp",
+  "file": "C:/Users/congr/Desktop/GasDispersionDesktop/src/main.cpp",
+  "output": "CMakeFiles/GasDispersionDesktop.dir/src/main.cpp.obj"
+},
+{
+  "directory": "C:/Users/congr/Desktop/GasDispersionDesktop/build-mingw",
+  "command": "C:\\Qt\\Tools\\mingw1310_64\\bin\\g++.exe -DMINGW_HAS_SECURE_API=1 -DQT_CORE_LIB -DQT_GUI_LIB -DQT_NO_DEBUG -DQT_WIDGETS_LIB -DUNICODE -DWIN32 -DWIN64 -D_ENABLE_EXTENDED_ALIGNED_STORAGE -D_UNICODE -D_WIN64 @CMakeFiles/GasDispersionDesktop.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles\\GasDispersionDesktop.dir\\src\\MainWindow.cpp.obj -c C:\\Users\\congr\\Desktop\\GasDispersionDesktop\\src\\MainWindow.cpp",
+  "file": "C:/Users/congr/Desktop/GasDispersionDesktop/src/MainWindow.cpp",
+  "output": "CMakeFiles/GasDispersionDesktop.dir/src/MainWindow.cpp.obj"
+},
+{
+  "directory": "C:/Users/congr/Desktop/GasDispersionDesktop/build-mingw",
+  "command": "C:\\Qt\\Tools\\mingw1310_64\\bin\\g++.exe -DMINGW_HAS_SECURE_API=1 -DQT_CORE_LIB -DQT_GUI_LIB -DQT_NO_DEBUG -DQT_WIDGETS_LIB -DUNICODE -DWIN32 -DWIN64 -D_ENABLE_EXTENDED_ALIGNED_STORAGE -D_UNICODE -D_WIN64 @CMakeFiles/GasDispersionDesktop.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles\\GasDispersionDesktop.dir\\src\\Simulator.cpp.obj -c C:\\Users\\congr\\Desktop\\GasDispersionDesktop\\src\\Simulator.cpp",
+  "file": "C:/Users/congr/Desktop/GasDispersionDesktop/src/Simulator.cpp",
+  "output": "CMakeFiles/GasDispersionDesktop.dir/src/Simulator.cpp.obj"
+},
+{
+  "directory": "C:/Users/congr/Desktop/GasDispersionDesktop/build-mingw",
+  "command": "C:\\Qt\\Tools\\mingw1310_64\\bin\\g++.exe -DMINGW_HAS_SECURE_API=1 -DQT_CORE_LIB -DQT_GUI_LIB -DQT_NO_DEBUG -DQT_WIDGETS_LIB -DUNICODE -DWIN32 -DWIN64 -D_ENABLE_EXTENDED_ALIGNED_STORAGE -D_UNICODE -D_WIN64 @CMakeFiles/GasDispersionDesktop.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles\\GasDispersionDesktop.dir\\src\\ExternalCfdBackend.cpp.obj -c C:\\Users\\congr\\Desktop\\GasDispersionDesktop\\src\\ExternalCfdBackend.cpp",
+  "file": "C:/Users/congr/Desktop/GasDispersionDesktop/src/ExternalCfdBackend.cpp",
+  "output": "CMakeFiles/GasDispersionDesktop.dir/src/ExternalCfdBackend.cpp.obj"
+},
+{
+  "directory": "C:/Users/congr/Desktop/GasDispersionDesktop/build-mingw",
+  "command": "C:\\Qt\\Tools\\mingw1310_64\\bin\\g++.exe -DMINGW_HAS_SECURE_API=1 -DQT_CORE_LIB -DQT_GUI_LIB -DQT_NO_DEBUG -DQT_WIDGETS_LIB -DUNICODE -DWIN32 -DWIN64 -D_ENABLE_EXTENDED_ALIGNED_STORAGE -D_UNICODE -D_WIN64 @CMakeFiles/GasDispersionDesktop.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles\\GasDispersionDesktop.dir\\src\\CsvFrameReader.cpp.obj -c C:\\Users\\congr\\Desktop\\GasDispersionDesktop\\src\\CsvFrameReader.cpp",
+  "file": "C:/Users/congr/Desktop/GasDispersionDesktop/src/CsvFrameReader.cpp",
+  "output": "CMakeFiles/GasDispersionDesktop.dir/src/CsvFrameReader.cpp.obj"
+}
+]

@@ -5,6 +5,7 @@
 #include <QDateTime>
 #include <QStringList>
 #include <QDir>
+#include <QTimer>
 
 #include "Simulator.h"
 #include "CsvFrameReader.h"

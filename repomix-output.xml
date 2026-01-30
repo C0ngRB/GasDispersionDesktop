@@ -1,0 +1,719 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+ColorMap.h
+main.cpp
+MainWindow.cpp
+MainWindow.h
+Simulator.cpp
+Simulator.h
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="ColorMap.h">
+#pragma once
+#include <QtGui/QColor>
+#include <algorithm>
+
+/**
+ * @brief 将标量值映射为颜色（简单科学渐变：深蓝->青->黄->红）
+ * @param x 归一化值 [0,1]
+ */
+inline QColor colorMap(float x)
+{
+  x = std::clamp(x, 0.0f, 1.0f);
+
+  // 分段线性：0:蓝 0.33:青 0.66:黄 1:红
+  auto lerp = [](float a, float b, float t)
+  { return a + (b - a) * t; };
+
+  float r = 0, g = 0, b = 0;
+
+  if (x < 0.33f)
+  {
+    float t = x / 0.33f;
+    // 蓝(0,0,140) -> 青(0,255,255)
+    r = 0;
+    g = lerp(0, 255, t);
+    b = lerp(140, 255, t);
+  }
+  else if (x < 0.66f)
+  {
+    float t = (x - 0.33f) / 0.33f;
+    // 青(0,255,255) -> 黄(255,255,0)
+    r = lerp(0, 255, t);
+    g = 255;
+    b = lerp(255, 0, t);
+  }
+  else
+  {
+    float t = (x - 0.66f) / 0.34f;
+    // 黄(255,255,0) -> 红(255,0,0)
+    r = 255;
+    g = lerp(255, 0, t);
+    b = 0;
+  }
+  return QColor((int)r, (int)g, (int)b);
+}
+</file>
+
+<file path="main.cpp">
+#include <QtWidgets/QApplication>
+#include "MainWindow.h"
+
+int main(int argc, char *argv[]) {
+    QApplication app(argc, argv);
+    MainWindow w;
+    w.show();
+    return app.exec();
+}
+</file>
+
+<file path="MainWindow.cpp">
+#include "MainWindow.h"
+#include "ColorMap.h"
+
+#include <QtWidgets/QWidget>
+#include <QtWidgets/QFormLayout>
+#include <QtWidgets/QHBoxLayout>
+#include <QtWidgets/QVBoxLayout>
+#include <QtWidgets/QGroupBox>
+#include <QtWidgets/QSplitter>
+#include <QtWidgets/QMessageBox>
+
+#include <algorithm>
+
+static QDoubleSpinBox *makeDsb(double minV, double maxV, double step, double val, int decimals = 3)
+{
+  auto *sb = new QDoubleSpinBox();
+  sb->setRange(minV, maxV);
+  sb->setDecimals(decimals);
+  sb->setSingleStep(step);
+  sb->setValue(val);
+  return sb;
+}
+static QSpinBox *makeSsb(int minV, int maxV, int step, int val)
+{
+  auto *sb = new QSpinBox();
+  sb->setRange(minV, maxV);
+  sb->setSingleStep(step);
+  sb->setValue(val);
+  return sb;
+}
+
+MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
+{
+  setWindowTitle("GasDispersionDesktop - Advection-Diffusion CFD Baseline");
+  resize(1200, 700);
+
+  auto *central = new QWidget(this);
+  setCentralWidget(central);
+
+  auto *splitter = new QSplitter(Qt::Horizontal, central);
+
+  // ---- Left panel: controls ----
+  auto *left = new QWidget(splitter);
+  auto *leftLayout = new QVBoxLayout(left);
+
+  auto *gbWind = new QGroupBox("Wind", left);
+  auto *windForm = new QFormLayout(gbWind);
+  sbWindSpeed_ = makeDsb(0.0, 50.0, 0.1, 2.0, 3);
+  sbWindDir_ = makeDsb(-180.0, 180.0, 1.0, 0.0, 1);
+  windForm->addRow("Speed (m/s)", sbWindSpeed_);
+  windForm->addRow("Direction (deg, 0=+x)", sbWindDir_);
+
+  auto *gbDomain = new QGroupBox("Domain & Grid", left);
+  auto *domainForm = new QFormLayout(gbDomain);
+  sbLx_ = makeDsb(10.0, 5000.0, 10.0, 200.0, 1);
+  sbLy_ = makeDsb(10.0, 5000.0, 10.0, 100.0, 1);
+  sbNx_ = makeSsb(50, 2000, 50, 300);
+  sbNy_ = makeSsb(50, 2000, 50, 150);
+  domainForm->addRow("Lx (m)", sbLx_);
+  domainForm->addRow("Ly (m)", sbLy_);
+  domainForm->addRow("Nx", sbNx_);
+  domainForm->addRow("Ny", sbNy_);
+
+  auto *gbTime = new QGroupBox("Time", left);
+  auto *timeForm = new QFormLayout(gbTime);
+  sbTotalTime_ = makeDsb(1.0, 36000.0, 10.0, 60.0, 1);
+  sbDt_ = makeDsb(1e-4, 10.0, 0.01, 0.05, 4);
+  cbAutoClampDt_ = new QCheckBox("Auto clamp dt (CFL/diffusion stable)", gbTime);
+  cbAutoClampDt_->setChecked(true);
+  timeForm->addRow("Total (s)", sbTotalTime_);
+  timeForm->addRow("dt (s)", sbDt_);
+  timeForm->addRow(cbAutoClampDt_);
+
+  auto *gbPhys = new QGroupBox("Dispersion", left);
+  auto *physForm = new QFormLayout(gbPhys);
+  sbD_ = makeDsb(0.0, 1e5, 0.1, 1.0, 4);
+  sbDecay_ = makeDsb(0.0, 10.0, 0.001, 0.0, 4);
+  physForm->addRow("D (m^2/s)", sbD_);
+  physForm->addRow("decay k (1/s)", sbDecay_);
+
+  auto *gbSrc = new QGroupBox("Point Source", left);
+  auto *srcForm = new QFormLayout(gbSrc);
+  sbSrcX_ = makeDsb(0.0, 1e6, 1.0, 20.0, 2);
+  sbSrcY_ = makeDsb(0.0, 1e6, 1.0, 50.0, 2);
+  sbLeak_ = makeDsb(0.0, 1e9, 0.1, 1.0, 6);
+  sbH_ = makeDsb(0.01, 1000.0, 0.1, 1.0, 3);
+  srcForm->addRow("x (m)", sbSrcX_);
+  srcForm->addRow("y (m)", sbSrcY_);
+  srcForm->addRow("Leak Q (kg/s or rel.)", sbLeak_);
+  srcForm->addRow("Effective height H (m)", sbH_);
+
+  auto *btnRow = new QWidget(left);
+  auto *btnLayout = new QHBoxLayout(btnRow);
+  btnRun_ = new QPushButton("Run", btnRow);
+  btnPause_ = new QPushButton("Pause", btnRow);
+  btnReset_ = new QPushButton("Reset", btnRow);
+  btnLayout->addWidget(btnRun_);
+  btnLayout->addWidget(btnPause_);
+  btnLayout->addWidget(btnReset_);
+
+  log_ = new QPlainTextEdit(left);
+  log_->setReadOnly(true);
+  log_->setMaximumBlockCount(2000);
+  log_->setPlaceholderText("Log...");
+
+  leftLayout->addWidget(gbWind);
+  leftLayout->addWidget(gbDomain);
+  leftLayout->addWidget(gbTime);
+  leftLayout->addWidget(gbPhys);
+  leftLayout->addWidget(gbSrc);
+  leftLayout->addWidget(btnRow);
+  leftLayout->addWidget(log_, 1);
+
+  // ---- Right panel: visualization ----
+  auto *right = new QWidget(splitter);
+  auto *rightLayout = new QVBoxLayout(right);
+  view_ = new QLabel(right);
+  view_->setMinimumSize(800, 500);
+  view_->setAlignment(Qt::AlignCenter);
+  view_->setText("Click Run to start.");
+  status_ = new QLabel(right);
+  rightLayout->addWidget(view_, 1);
+  rightLayout->addWidget(status_);
+
+  splitter->addWidget(left);
+  splitter->addWidget(right);
+  splitter->setStretchFactor(0, 0);
+  splitter->setStretchFactor(1, 1);
+
+  auto *centralLayout = new QVBoxLayout(central);
+  centralLayout->addWidget(splitter);
+
+  timer_ = new QTimer(this);
+  timer_->setInterval(16); // ~60 FPS upper bound, actual step per tick can be 1
+  connect(timer_, &QTimer::timeout, this, &MainWindow::onTick);
+
+  connect(btnRun_, &QPushButton::clicked, this, &MainWindow::onRunClicked);
+  connect(btnPause_, &QPushButton::clicked, this, &MainWindow::onPauseClicked);
+  connect(btnReset_, &QPushButton::clicked, this, &MainWindow::onResetClicked);
+
+  rebuildSimulator();
+  renderField();
+}
+
+SimParams MainWindow::readParams() const
+{
+  SimParams p;
+  p.windSpeed_mps = sbWindSpeed_->value();
+  p.windDir_deg = sbWindDir_->value();
+
+  p.Lx_m = sbLx_->value();
+  p.Ly_m = sbLy_->value();
+  p.Nx = sbNx_->value();
+  p.Ny = sbNy_->value();
+
+  p.totalTime_s = sbTotalTime_->value();
+  p.dt_s = sbDt_->value();
+  p.autoClampDt = cbAutoClampDt_->isChecked();
+
+  p.D_m2ps = sbD_->value();
+  p.decay_1ps = sbDecay_->value();
+
+  p.srcX_m = sbSrcX_->value();
+  p.srcY_m = sbSrcY_->value();
+  p.leakRate = sbLeak_->value();
+  p.effectiveHeight_m = sbH_->value();
+
+  // clamp source to domain in UI-friendly way (simulator will clamp anyway)
+  p.srcX_m = std::clamp(p.srcX_m, 0.0, p.Lx_m);
+  p.srcY_m = std::clamp(p.srcY_m, 0.0, p.Ly_m);
+
+  return p;
+}
+
+void MainWindow::appendLog(const QString &s)
+{
+  log_->appendPlainText(s);
+}
+
+void MainWindow::rebuildSimulator()
+{
+  const auto p = readParams();
+  if (!sim_)
+    sim_ = new Simulator(p);
+  else
+    sim_->reset(p);
+
+  const double dtStable = sim_->stableDt();
+  appendLog(QString("[Init] u=%.3f m/s, v=%.3f m/s, stable dt <= %.6f s")
+                .arg(sim_->u())
+                .arg(sim_->v())
+                .arg(dtStable));
+
+  if (!p.autoClampDt && p.dt_s > dtStable)
+  {
+    QMessageBox::warning(this, "Stability warning",
+                         QString("Your dt=%.6f exceeds stable dt<=%.6f.\n"
+                                 "Enable auto clamp or reduce dt.")
+                             .arg(p.dt_s)
+                             .arg(dtStable));
+  }
+}
+
+void MainWindow::renderField()
+{
+  if (!sim_)
+    return;
+
+  const int Nx = sim_->Nx();
+  const int Ny = sim_->Ny();
+  const auto &f = sim_->field();
+
+  // Downscale for display (avoid huge QImage)
+  const int maxW = 900;
+  const int maxH = 600;
+  const double sx = (double)Nx / maxW;
+  const double sy = (double)Ny / maxH;
+  const double s = std::max(1.0, std::max(sx, sy));
+  const int W = std::max(1, (int)std::round(Nx / s));
+  const int H = std::max(1, (int)std::round(Ny / s));
+
+  QImage img(W, H, QImage::Format_RGB32);
+
+  const float maxC = std::max(1e-12f, sim_->maxC());
+  for (int y = 0; y < H; ++y)
+  {
+    int j = std::clamp((int)std::round(y * s), 0, Ny - 1);
+    for (int x = 0; x < W; ++x)
+    {
+      int i = std::clamp((int)std::round(x * s), 0, Nx - 1);
+      float c = f[i + j * Nx];
+      float n = c / maxC; // auto normalize to current max
+      const QColor col = colorMap(n);
+      img.setPixelColor(x, H - 1 - y, col); // flip y for view
+    }
+  }
+
+  view_->setPixmap(QPixmap::fromImage(img).scaled(view_->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+
+  status_->setText(QString("t = %.3f s | maxC = %.6g | grid = %1x%2")
+                       .arg(sim_->time(), 0, 'f', 3)
+                       .arg(sim_->maxC(), 0, 'g', 6)
+                       .arg(Nx)
+                       .arg(Ny));
+}
+
+void MainWindow::onRunClicked()
+{
+  if (!sim_)
+    rebuildSimulator();
+  if (!running_)
+  {
+    running_ = true;
+    timer_->start();
+    appendLog("[Run] start.");
+  }
+}
+
+void MainWindow::onPauseClicked()
+{
+  if (running_)
+  {
+    running_ = false;
+    timer_->stop();
+    appendLog("[Pause] stopped.");
+  }
+}
+
+void MainWindow::onResetClicked()
+{
+  running_ = false;
+  timer_->stop();
+  rebuildSimulator();
+  renderField();
+  appendLog("[Reset] done.");
+}
+
+void MainWindow::onTick()
+{
+  if (!sim_)
+    return;
+
+  const auto p = readParams();
+  // 若用户在运行时改参数：为了简洁，本版本不热更新全部参数。
+  // 实务上建议：Pause->Reset->Run。
+  // 这里只做“时间推进直到 totalTime”。
+  if (sim_->time() >= p.totalTime_s)
+  {
+    running_ = false;
+    timer_->stop();
+    appendLog("[Done] reached total time.");
+    return;
+  }
+
+  // 每个tick推进若干步以加快演化（视dt/分辨率而定）
+  const int stepsPerTick = 2;
+  for (int k = 0; k < stepsPerTick; ++k)
+  {
+    sim_->step();
+    if (sim_->time() >= p.totalTime_s)
+      break;
+  }
+
+  renderField();
+}
+</file>
+
+<file path="MainWindow.h">
+#pragma once
+#include <QtWidgets/QMainWindow>
+#include <QtWidgets/QLabel>
+#include <QTimer>
+#include <QtWidgets/QDoubleSpinBox>
+#include <QtWidgets/QSpinBox>
+#include <QtWidgets/QCheckBox>
+#include <QtWidgets/QPushButton>
+#include <QtWidgets/QPlainTextEdit>
+
+#include "Simulator.h"
+
+class MainWindow : public QMainWindow
+{
+  Q_OBJECT
+public:
+  explicit MainWindow(QWidget *parent = nullptr);
+
+private slots:
+  void onRunClicked();
+  void onPauseClicked();
+  void onResetClicked();
+  void onTick();
+
+private:
+  // UI
+  QLabel *view_{nullptr};
+  QLabel *status_{nullptr};
+
+  QDoubleSpinBox *sbWindSpeed_{nullptr}, *sbWindDir_{nullptr};
+  QDoubleSpinBox *sbLx_{nullptr}, *sbLy_{nullptr};
+  QSpinBox *sbNx_{nullptr}, *sbNy_{nullptr};
+  QDoubleSpinBox *sbTotalTime_{nullptr}, *sbDt_{nullptr};
+  QDoubleSpinBox *sbD_{nullptr}, *sbDecay_{nullptr};
+  QDoubleSpinBox *sbSrcX_{nullptr}, *sbSrcY_{nullptr};
+  QDoubleSpinBox *sbLeak_{nullptr}, *sbH_{nullptr};
+  QCheckBox *cbAutoClampDt_{nullptr};
+
+  QPushButton *btnRun_{nullptr};
+  QPushButton *btnPause_{nullptr};
+  QPushButton *btnReset_{nullptr};
+
+  QPlainTextEdit *log_{nullptr};
+
+  // Sim
+  Simulator *sim_{nullptr};
+  QTimer *timer_{nullptr};
+  bool running_{false};
+
+  SimParams readParams() const;
+  void rebuildSimulator();
+  void renderField();
+  void appendLog(const QString &s);
+};
+</file>
+
+<file path="Simulator.cpp">
+#include "Simulator.h"
+
+Simulator::Simulator(const SimParams &p)
+{
+  reset(p);
+}
+
+void Simulator::reset(const SimParams &p)
+{
+  p_ = p;
+  Nx_ = std::max(10, p_.Nx);
+  Ny_ = std::max(10, p_.Ny);
+
+  dx_ = p_.Lx_m / (Nx_ - 1);
+  dy_ = p_.Ly_m / (Ny_ - 1);
+
+  // wind components
+  constexpr double kPi = 3.1415926535897932384626433832795;
+  const double rad = p_.windDir_deg * kPi / 180.0;
+
+  u_ = p_.windSpeed_mps * std::cos(rad);
+  v_ = p_.windSpeed_mps * std::sin(rad);
+
+  C_.assign((size_t)Nx_ * (size_t)Ny_, 0.0f);
+  Cnew_ = C_;
+  t_ = 0.0;
+  maxC_ = 0.0f;
+
+  computeSourceIndex();
+}
+
+void Simulator::computeSourceIndex()
+{
+  src_i_ = (int)std::round(p_.srcX_m / dx_);
+  src_j_ = (int)std::round(p_.srcY_m / dy_);
+  src_i_ = std::clamp(src_i_, 0, Nx_ - 1);
+  src_j_ = std::clamp(src_j_, 0, Ny_ - 1);
+}
+
+float Simulator::sample(int i, int j) const
+{
+  if (i < 0 || i >= Nx_ || j < 0 || j >= Ny_)
+    return 0.0f; // outside treated as 0
+  return C_[idx(i, j)];
+}
+
+double Simulator::stableDt() const
+{
+  // 对流CFL：dt <= cfl * min(dx/|u|, dy/|v|)
+  // 扩散稳定：dt <= diff * min(dx^2, dy^2) / (4D)
+  const double eps = 1e-12;
+  const double cfl = 0.5;
+  const double diff = 0.25;
+
+  double dt_adv = 1e9;
+  if (std::abs(u_) > eps)
+    dt_adv = std::min(dt_adv, cfl * dx_ / std::abs(u_));
+  if (std::abs(v_) > eps)
+    dt_adv = std::min(dt_adv, cfl * dy_ / std::abs(v_));
+
+  double dt_diff = 1e9;
+  if (p_.D_m2ps > eps)
+  {
+    const double h2 = std::min(dx_ * dx_, dy_ * dy_);
+    dt_diff = diff * h2 / p_.D_m2ps;
+  }
+
+  return std::min(dt_adv, dt_diff);
+}
+
+double Simulator::step()
+{
+  // 自动钳制 dt
+  double dt = p_.dt_s;
+  const double dtStable = stableDt();
+  if (p_.autoClampDt && dtStable > 0 && dt > dtStable)
+  {
+    dt = dtStable;
+  }
+
+  // 预计算源项注入：把 leakRate（kg/s）近似为 2D 单元浓度增量：
+  // dC += (Q * dt) / (dx*dy*H)
+  // 若你不关心量纲，可把 leakRate 看作“相对注入强度”
+  const double cellVol = dx_ * dy_ * std::max(1e-6, p_.effectiveHeight_m);
+  const float sourceAdd = (float)((p_.leakRate * dt) / cellVol);
+
+  const double D = p_.D_m2ps;
+  const double k = p_.decay_1ps;
+
+  maxC_ = 0.0f;
+
+  for (int j = 0; j < Ny_; ++j)
+  {
+    for (int i = 0; i < Nx_; ++i)
+    {
+      const float Cc = sample(i, j);
+
+      // --- Upwind gradients ---
+      float dCdx = 0.0f;
+      if (u_ >= 0)
+        dCdx = (Cc - sample(i - 1, j)) / (float)dx_;
+      else
+        dCdx = (sample(i + 1, j) - Cc) / (float)dx_;
+
+      float dCdy = 0.0f;
+      if (v_ >= 0)
+        dCdy = (Cc - sample(i, j - 1)) / (float)dy_;
+      else
+        dCdy = (sample(i, j + 1) - Cc) / (float)dy_;
+
+      // --- Laplacian (central) ---
+      float d2Cdx2 = (sample(i + 1, j) - 2.0f * Cc + sample(i - 1, j)) / (float)(dx_ * dx_);
+      float d2Cdy2 = (sample(i, j + 1) - 2.0f * Cc + sample(i, j - 1)) / (float)(dy_ * dy_);
+
+      const float adv = (float)(-u_ * dCdx - v_ * dCdy);
+      const float dif = (float)(D * (d2Cdx2 + d2Cdy2));
+      const float dec = (float)(-k * Cc);
+
+      float Cn = Cc + (float)dt * (adv + dif + dec);
+
+      // 源项注入（体源/点近似）
+      if (i == src_i_ && j == src_j_)
+      {
+        Cn += sourceAdd;
+      }
+
+      // 物理下限：浓度不为负
+      if (Cn < 0.0f)
+        Cn = 0.0f;
+
+      Cnew_[idx(i, j)] = Cn;
+      if (Cn > maxC_)
+        maxC_ = Cn;
+    }
+  }
+
+  C_.swap(Cnew_);
+  t_ += dt;
+  return t_;
+}
+</file>
+
+<file path="Simulator.h">
+#pragma once
+#include <vector>
+#include <cstddef>
+#include <algorithm>
+#include <cmath>
+#include <string>
+
+/**
+ * @brief 2D 对流-扩散仿真参数
+ *
+ * 物理模型（被动标量）：
+ *   dC/dt + u dC/dx + v dC/dy = D ∇²C - kC + S
+ *
+ * 说明：
+ * - u,v: 由风速与风向确定（恒定均匀）
+ * - D: 有效扩散系数（可视作分子扩散 + 湍扩散的合并）
+ * - k: 一阶衰减（可用于沉降/反应的粗略近似）
+ * - S: 源项注入（在源点所在网格单元内注入）
+ */
+struct SimParams
+{
+  // Domain
+  double Lx_m = 200.0;
+  double Ly_m = 100.0;
+  int Nx = 300;
+  int Ny = 150;
+
+  // Time
+  double totalTime_s = 60.0;
+  double dt_s = 0.05;
+  bool autoClampDt = true;
+
+  // Wind
+  double windSpeed_mps = 2.0;
+  double windDir_deg = 0.0; // 0=向东(+x), 90=向北(+y)
+
+  // Dispersion
+  double D_m2ps = 1.0;    // 有效扩散系数
+  double decay_1ps = 0.0; // 衰减
+
+  // Source
+  double srcX_m = 20.0;
+  double srcY_m = 50.0;
+  double leakRate = 1.0;          // 注入强度（相对单位或 kg/s 量纲由你自己解释）
+  double effectiveHeight_m = 1.0; // 2D->3D等效厚度（用于把 kg/s 转成 2D体积浓度增量）
+};
+
+/**
+ * @brief 数值仿真核心（显式迎风 + 扩散中心差分）
+ */
+class Simulator
+{
+public:
+  explicit Simulator(const SimParams &p);
+
+  void reset(const SimParams &p);
+
+  // 单步推进；返回当前时间（推进后）
+  double step();
+
+  // 读取浓度场（行主序：i + j*Nx）
+  const std::vector<float> &field() const { return C_; }
+
+  int Nx() const { return Nx_; }
+  int Ny() const { return Ny_; }
+  double time() const { return t_; }
+
+  // 统计量
+  float maxC() const { return maxC_; }
+
+  // 稳定步长上限（建议 dt <= dtStable）
+  double stableDt() const;
+
+  // 获取当前风速分量
+  double u() const { return u_; }
+  double v() const { return v_; }
+
+private:
+  SimParams p_;
+  int Nx_{}, Ny_{};
+  double dx_{}, dy_{};
+  double t_{0.0};
+  double u_{0.0}, v_{0.0}; // wind components
+
+  std::vector<float> C_;
+  std::vector<float> Cnew_;
+
+  int src_i_{0}, src_j_{0};
+  float maxC_{0.0f};
+
+  inline int idx(int i, int j) const { return i + j * Nx_; }
+
+  float sample(int i, int j) const;
+  void computeSourceIndex();
+};
+</file>
+
+</files>
