@@ -75,3 +75,4 @@ repomix-output/
 # Work directories (external CFD runner)
 work/
 run_*/
+"build-mingw/" 

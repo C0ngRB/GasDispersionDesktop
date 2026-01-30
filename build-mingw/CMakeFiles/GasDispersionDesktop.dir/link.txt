@@ -1,3 +1,0 @@
-C:\Qt\Tools\CMake_64\bin\cmake.exe -E rm -f CMakeFiles\GasDispersionDesktop.dir/objects.a
-C:\Qt\Tools\mingw1310_64\bin\ar.exe qc CMakeFiles\GasDispersionDesktop.dir/objects.a @CMakeFiles\GasDispersionDesktop.dir\objects1.rsp
-C:\Qt\Tools\mingw1310_64\bin\g++.exe -O3 -DNDEBUG -Wl,--whole-archive CMakeFiles\GasDispersionDesktop.dir/objects.a -Wl,--no-whole-archive -o GasDispersionDesktop.exe -Wl,--out-implib,libGasDispersionDesktop.dll.a -Wl,--major-image-version,0,--minor-image-version,0 @CMakeFiles\GasDispersionDesktop.dir\linkLibs.rsp
