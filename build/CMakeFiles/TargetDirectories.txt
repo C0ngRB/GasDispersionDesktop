@@ -1,5 +1,0 @@
-C:/Users/congr/Desktop/GasDispersionDesktop/build/CMakeFiles/GasDispersionDesktop.dir
-C:/Users/congr/Desktop/GasDispersionDesktop/build/CMakeFiles/PACKAGE.dir
-C:/Users/congr/Desktop/GasDispersionDesktop/build/CMakeFiles/INSTALL.dir
-C:/Users/congr/Desktop/GasDispersionDesktop/build/CMakeFiles/ALL_BUILD.dir
-C:/Users/congr/Desktop/GasDispersionDesktop/build/CMakeFiles/ZERO_CHECK.dir
