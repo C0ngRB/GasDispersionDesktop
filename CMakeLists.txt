@@ -1,0 +1,33 @@
+cmake_minimum_required(VERSION 3.20)
+project(GasDispersionDesktop LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+find_package(Qt6 REQUIRED COMPONENTS Widgets)
+
+qt_standard_project_setup()
+
+add_executable(GasDispersionDesktop
+  src/main.cpp
+  src/MainWindow.h
+  src/MainWindow.cpp
+  src/Simulator.h
+  src/Simulator.cpp
+  src/ColorMap.h
+)
+
+target_link_libraries(GasDispersionDesktop PRIVATE Qt6::Widgets)
+
+# --- Packaging (Windows NSIS via CPack) ---
+include(InstallRequiredSystemLibraries)
+install(TARGETS GasDispersionDesktop RUNTIME DESTINATION .)
+
+set(CPACK_PACKAGE_NAME "GasDispersionDesktop")
+set(CPACK_PACKAGE_VENDOR "Local")
+set(CPACK_PACKAGE_VERSION "0.1.0")
+set(CPACK_GENERATOR "NSIS")
+set(CPACK_NSIS_DISPLAY_NAME "GasDispersionDesktop")
+set(CPACK_NSIS_PACKAGE_NAME "GasDispersionDesktop")
+set(CPACK_NSIS_MODIFY_PATH OFF)
+include(CPack)
