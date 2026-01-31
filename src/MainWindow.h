@@ -1,54 +1,89 @@
 #pragma once
 #include <QtWidgets/QMainWindow>
 #include <QtWidgets/QLabel>
-#include <QTimer>
 #include <QtWidgets/QDoubleSpinBox>
 #include <QtWidgets/QSpinBox>
 #include <QtWidgets/QCheckBox>
 #include <QtWidgets/QPushButton>
 #include <QtWidgets/QPlainTextEdit>
+#include <QtWidgets/QLineEdit>
+#include <QtWidgets/QComboBox>
+#include <QTimer>
 
-#include "Simulator.h"
+#include "TerrainDem.h"
+#include "Simulator3D.h"
 
-class MainWindow : public QMainWindow
-{
-  Q_OBJECT
+class MainWindow : public QMainWindow {
+    Q_OBJECT
 public:
-  explicit MainWindow(QWidget *parent = nullptr);
+    explicit MainWindow(QWidget* parent = nullptr);
 
 private slots:
-  void onRunClicked();
-  void onPauseClicked();
-  void onResetClicked();
-  void onTick();
+    void onLoadDemClicked();
+    void onRunClicked();
+    void onPauseClicked();
+    void onResetClicked();
+    void onTick();
+    void onSetSrcZFromGroundClicked();
 
 private:
-  // UI
-  QLabel *view_{nullptr};
-  QLabel *status_{nullptr};
+    QLabel* view_{nullptr};
+    QLabel* status_{nullptr};
 
-  QDoubleSpinBox *sbWindSpeed_{nullptr}, *sbWindDir_{nullptr};
-  QDoubleSpinBox *sbLx_{nullptr}, *sbLy_{nullptr};
-  QSpinBox *sbNx_{nullptr}, *sbNy_{nullptr};
-  QDoubleSpinBox *sbTotalTime_{nullptr}, *sbDt_{nullptr};
-  QDoubleSpinBox *sbD_{nullptr}, *sbDecay_{nullptr};
-  QDoubleSpinBox *sbSrcX_{nullptr}, *sbSrcY_{nullptr};
-  QDoubleSpinBox *sbLeak_{nullptr}, *sbH_{nullptr};
-  QCheckBox *cbAutoClampDt_{nullptr};
+    QLineEdit* leDemTif_{nullptr};
+    QPushButton* btnLoadDem_{nullptr};
+    QLabel* demInfo_{nullptr};
+    QSpinBox* sbDemStride_{nullptr};
 
-  QPushButton *btnRun_{nullptr};
-  QPushButton *btnPause_{nullptr};
-  QPushButton *btnReset_{nullptr};
+    QDoubleSpinBox* sbDz_{nullptr};
+    QDoubleSpinBox* sbZTopMargin_{nullptr};
+    QSpinBox* sbNzMax_{nullptr};
+    QDoubleSpinBox* sbZSlice_{nullptr};
 
-  QPlainTextEdit *log_{nullptr};
+    QDoubleSpinBox* sbWindSpeed_{nullptr};
+    QDoubleSpinBox* sbWindDir_{nullptr};
+    QDoubleSpinBox* sbK_{nullptr};
+    QDoubleSpinBox* sbDecay_{nullptr};
 
-  // Sim
-  Simulator *sim_{nullptr};
-  QTimer *timer_{nullptr};
-  bool running_{false};
+    QDoubleSpinBox* sbTotalTime_{nullptr};
+    QDoubleSpinBox* sbDt_{nullptr};
+    QCheckBox* cbAutoClampDt_{nullptr};
+    QCheckBox* cbExportCsv_{nullptr};
+    QDoubleSpinBox* sbExportInterval_{nullptr};
 
-  SimParams readParams() const;
-  void rebuildSimulator();
-  void renderField();
-  void appendLog(const QString &s);
+    QDoubleSpinBox* sbSrcX_{nullptr};
+    QDoubleSpinBox* sbSrcY_{nullptr};
+    QDoubleSpinBox* sbSrcZ_{nullptr};
+    QDoubleSpinBox* sbSrcRadius_{nullptr};
+    QDoubleSpinBox* sbLeak_{nullptr};
+    QDoubleSpinBox* sbAgl_{nullptr};
+    QPushButton* btnSetSrcZFromGround_{nullptr};
+
+    QPushButton* btnRun_{nullptr};
+    QPushButton* btnPause_{nullptr};
+    QPushButton* btnReset_{nullptr};
+    QPlainTextEdit* log_{nullptr};
+
+    TerrainDem dem_;
+    bool hasDem_{false};
+
+    Simulator3D sim_;
+    bool simReady_{false};
+
+    QTimer* timer_{nullptr};
+    bool running_{false};
+
+    double nextExportT_{0.0};
+    int frameId_{0};
+
+    std::vector<float> slice_;
+    float sliceMax_{0.0f};
+
+    void appendLog(const QString& s);
+    void renderSlice();
+
+    bool buildSimulation(QString& errOut);
+    Simulator3D::Params readSimParams() const;
+
+    QString framesDir() const;
 };
