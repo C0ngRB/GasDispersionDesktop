@@ -20,6 +20,9 @@ add_executable(GasDispersionDesktop
   src/CsvFrameReader.h
   src/CsvFrameReader.cpp
   src/Grid3D.h
+  src/ITerrain.h
+  src/TerrainFlat.h
+  src/TerrainProcedural.h
   src/TerrainDem.h
   src/TerrainDem.cpp
   src/Simulator3D.h

@@ -55,8 +55,15 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
   backendForm->addRow("Mode", cbBackend_);
   backendForm->addRow("Runner", leRunner_);
 
-  auto *gbDem = new QGroupBox("Terrain DEM (GeoTIFF)", left);
+  auto *gbDem = new QGroupBox("Terrain Mode", left);
   auto *demForm = new QFormLayout(gbDem);
+
+  cbTerrainMode_ = new QComboBox(gbDem);
+  cbTerrainMode_->addItem("Flat (default)", QVariant(static_cast<int>(TerrainMode::Flat)));
+  cbTerrainMode_->addItem("DEM (GeoTIFF)", QVariant(static_cast<int>(TerrainMode::Dem)));
+  cbTerrainMode_->addItem("Procedural (virtual)", QVariant(static_cast<int>(TerrainMode::Procedural)));
+  cbTerrainMode_->setCurrentIndex(0);
+
   leDemTif_ = new QLineEdit(gbDem);
   leDemTif_->setPlaceholderText("Select GeoTIFF DEM (.tif)");
   btnLoadDem_ = new QPushButton("Convert+Load", gbDem);
@@ -69,11 +76,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
   demRowLayout->addWidget(leDemTif_, 1);
   demRowLayout->addWidget(btnLoadDem_);
 
+  demForm->addRow("Mode", cbTerrainMode_);
   demForm->addRow("GeoTIFF path", demRow);
   demForm->addRow("XY stride", sbDemStride_);
   demForm->addRow("Info", demInfo_);
 
   connect(btnLoadDem_, &QPushButton::clicked, this, &MainWindow::onLoadDemClicked);
+  connect(cbTerrainMode_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onTerrainModeChanged);
 
   auto *gbWind = new QGroupBox("Wind", left);
   auto *windForm = new QFormLayout(gbWind);
@@ -305,10 +314,14 @@ void MainWindow::onLoadDemClicked()
 
 void MainWindow::onSetSrcZFromGroundClicked()
 {
-  if (!hasDem_) { appendLog("[SRC] DEM not loaded."); return; }
+  ITerrain* terrain = currentTerrain();
+  if (!terrain) {
+    appendLog("[SRC] No terrain available.");
+    return;
+  }
   const double x = sbSrcX_->value();
   const double y = sbSrcY_->value();
-  const float gz = dem_.sampleBilinear(x, y);
+  const float gz = terrain->height(x, y);
   const double h = sbH_->value();
   sbSrcZ_->setValue(gz + h);
   appendLog(QString("[SRC] srcZ set to ground(%.2f)+H(%.2f)=%.2f").arg(gz).arg(h).arg(gz+h));
@@ -386,25 +399,90 @@ void MainWindow::renderFieldExternal(const CsvFrameReader::Frame& fr)
                    .arg(Nx).arg(Ny));
 }
 
+ITerrain* MainWindow::currentTerrain() {
+  TerrainMode mode = static_cast<TerrainMode>(cbTerrainMode_->currentData().toInt());
+  switch (mode) {
+  case TerrainMode::Flat: return &flatTerrain_;
+  case TerrainMode::Dem: return hasDem_ ? &dem_ : nullptr;
+  case TerrainMode::Procedural: return &procTerrain_;
+  }
+  return nullptr;
+}
+
+void MainWindow::onTerrainModeChanged(int index) {
+  TerrainMode mode = static_cast<TerrainMode>(cbTerrainMode_->itemData(index).toInt());
+  sim3dReady_ = false;
+  switch (mode) {
+  case TerrainMode::Flat:
+    leDemTif_->setEnabled(false);
+    btnLoadDem_->setEnabled(false);
+    sbDemStride_->setEnabled(false);
+    demInfo_->setText("Flat terrain (z=0)");
+    appendLog("[Terrain] Mode: Flat (default)");
+    break;
+  case TerrainMode::Dem:
+    leDemTif_->setEnabled(true);
+    btnLoadDem_->setEnabled(true);
+    sbDemStride_->setEnabled(true);
+    if (!hasDem_) demInfo_->setText("DEM: not loaded");
+    appendLog("[Terrain] Mode: DEM");
+    break;
+  case TerrainMode::Procedural:
+    leDemTif_->setEnabled(false);
+    btnLoadDem_->setEnabled(false);
+    sbDemStride_->setEnabled(false);
+    demInfo_->setText("Procedural terrain (Gaussian hill)");
+    procTerrain_.setMode(TerrainProcedural::Mode::GaussianHill);
+    procTerrain_.setGaussian({0.0, 0.0, 50.0, 200.0});
+    procTerrain_.setBaseZ(0.0f);
+    appendLog("[Terrain] Mode: Procedural (Gaussian hill)");
+    break;
+  }
+}
+
 bool MainWindow::buildSimulation3D(QString& errOut)
 {
   errOut.clear();
-  if (!hasDem_) { errOut = "DEM not loaded"; return false; }
 
-  const auto& m = dem_.meta();
-  const int stride = std::max(1, sbDemStride_->value());
+  ITerrain* terrain = currentTerrain();
+  if (!terrain) {
+    TerrainMode mode = static_cast<TerrainMode>(cbTerrainMode_->currentData().toInt());
+    if (mode == TerrainMode::Dem) errOut = "DEM not loaded";
+    else errOut = "Terrain not available";
+    return false;
+  }
 
   Grid3D g;
-  g.Nx = std::max(2, m.width / stride);
-  g.Ny = std::max(2, m.height / stride);
-  g.dx = m.dx * stride;
-  g.dy = m.dy * stride;
-  g.x0 = m.origin_x;
-  g.y0 = m.origin_y;
+  int Nx = 300, Ny = 150;
+  double dx = 2.0, dy = 2.0;
+  double x0 = -300.0, y0 = -150.0;
+  double zMin = 0.0, zMax = 100.0;
+
+  TerrainMode mode = static_cast<TerrainMode>(cbTerrainMode_->currentData().toInt());
+  if (mode == TerrainMode::Dem && hasDem_) {
+    const auto& m = dem_.meta();
+    const int stride = std::max(1, sbDemStride_->value());
+    Nx = std::max(2, m.width / stride);
+    Ny = std::max(2, m.height / stride);
+    dx = m.dx * stride;
+    dy = m.dy * stride;
+    x0 = m.origin_x;
+    y0 = m.origin_y;
+    zMin = m.z_min;
+    zMax = m.z_max;
+  }
+
+  g.Nx = Nx;
+  g.Ny = Ny;
+  g.dx = dx;
+  g.dy = dy;
+  g.x0 = x0;
+  g.y0 = y0;
 
   const double dz = sbDz_->value();
-  const double zTop = m.z_max + sbZTopMargin_->value();
-  g.z0 = m.z_min;
+  const double zTop = zMax + sbZTopMargin_->value();
+
+  g.z0 = zMin;
   g.dz = dz;
 
   int Nz = static_cast<int>(std::floor((zTop - g.z0) / g.dz)) + 1;
@@ -413,7 +491,7 @@ bool MainWindow::buildSimulation3D(QString& errOut)
 
   Simulator3D::Params p = readParams3D();
 
-  if (!sim3d_.initialize(g, dem_, p, errOut)) return false;
+  if (!sim3d_.initialize(g, terrain, p, errOut)) return false;
 
   sim3dReady_ = true;
   return true;

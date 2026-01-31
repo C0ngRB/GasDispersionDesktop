@@ -13,6 +13,8 @@
 #include "Simulator.h"
 #include "ExternalCfdBackend.h"
 #include "TerrainDem.h"
+#include "TerrainFlat.h"
+#include "TerrainProcedural.h"
 #include "Simulator3D.h"
 
 class MainWindow : public QMainWindow {
@@ -30,15 +32,18 @@ private slots:
   void onExternalFinished(bool ok, const QString& msg);
   void onLoadDemClicked();
   void onSetSrcZFromGroundClicked();
+  void onTerrainModeChanged(int index);
 
 private:
   enum class BackendMode { Internal, External, Terrain3D };
+  enum class TerrainMode { Flat, Dem, Procedural };
 
   QLabel *view_{nullptr};
   QLabel *status_{nullptr};
   QComboBox *cbBackend_{nullptr};
   QLineEdit *leRunner_{nullptr};
 
+  QComboBox *cbTerrainMode_{nullptr};
   QLineEdit *leDemTif_{nullptr};
   QPushButton *btnLoadDem_{nullptr};
   QLabel *demInfo_{nullptr};
@@ -73,7 +78,10 @@ private:
   bool hasLastFrame_{false};
 
   TerrainDem dem_;
+  TerrainFlat flatTerrain_;
+  TerrainProcedural procTerrain_;
   bool hasDem_{false};
+
   Simulator3D sim3d_;
   bool sim3dReady_{false};
   QDoubleSpinBox *sbDz_{nullptr};
@@ -89,5 +97,6 @@ private:
   void renderField3D();
   void appendLog(const QString &s);
   bool buildSimulation3D(QString& errOut);
+  ITerrain* currentTerrain();
   QString framesDir() const;
 };

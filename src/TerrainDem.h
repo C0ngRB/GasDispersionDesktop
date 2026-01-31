@@ -1,8 +1,9 @@
 #pragma once
 #include <QString>
 #include <vector>
+#include "ITerrain.h"
 
-class TerrainDem {
+class TerrainDem : public ITerrain {
 public:
     struct Meta {
         int width = 0;
@@ -28,6 +29,8 @@ public:
     double minY() const { return meta_.origin_y + (meta_.height - 1) * meta_.dy; }
 
     float sampleBilinear(double x, double y) const;
+    float height(double x, double y) const override { return sampleBilinear(x, y); }
+    bool isValid() const override { return !data_.empty() && meta_.epsg != 0; }
 
 private:
     Meta meta_;
