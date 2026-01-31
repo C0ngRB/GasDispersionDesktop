@@ -16,6 +16,9 @@ add_executable(GasDispersionDesktop
   src/Simulator.cpp
   src/ColorMap.h
   src/Grid3D.h
+  src/ITerrain.h
+  src/TerrainFlat.h
+  src/TerrainProcedural.h
   src/TerrainDem.h
   src/TerrainDem.cpp
   src/Simulator3D.h

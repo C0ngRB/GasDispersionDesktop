@@ -11,6 +11,8 @@
 #include <QTimer>
 
 #include "TerrainDem.h"
+#include "TerrainFlat.h"
+#include "TerrainProcedural.h"
 #include "Simulator3D.h"
 
 class MainWindow : public QMainWindow {
@@ -20,6 +22,7 @@ public:
 
 private slots:
     void onLoadDemClicked();
+    void onTerrainModeChanged(int index);
     void onRunClicked();
     void onPauseClicked();
     void onResetClicked();
@@ -27,9 +30,12 @@ private slots:
     void onSetSrcZFromGroundClicked();
 
 private:
+    enum TerrainMode { Flat, Dem, Procedural };
+
     QLabel* view_{nullptr};
     QLabel* status_{nullptr};
 
+    QComboBox* cbTerrainMode_{nullptr};
     QLineEdit* leDemTif_{nullptr};
     QPushButton* btnLoadDem_{nullptr};
     QLabel* demInfo_{nullptr};
@@ -65,6 +71,8 @@ private:
     QPlainTextEdit* log_{nullptr};
 
     TerrainDem dem_;
+    TerrainFlat flatTerrain_;
+    TerrainProcedural procTerrain_;
     bool hasDem_{false};
 
     Simulator3D sim_;
@@ -84,6 +92,6 @@ private:
 
     bool buildSimulation(QString& errOut);
     Simulator3D::Params readSimParams() const;
-
+    ITerrain* currentTerrain();
     QString framesDir() const;
 };

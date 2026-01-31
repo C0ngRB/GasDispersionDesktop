@@ -7,14 +7,14 @@ static inline double deg2rad(double deg) {
     return deg * kPi / 180.0;
 }
 
-bool Simulator3D::initialize(const Grid3D& grid, const TerrainDem& dem, const Params& p, QString& errOut) {
+bool Simulator3D::initialize(const Grid3D& grid, const ITerrain* terrain, const Params& p, QString& errOut) {
     errOut.clear();
 
     grid_ = grid;
     try { grid_.validate(); }
     catch (const std::exception& e) { errOut = e.what(); return false; }
 
-    dem_ = &dem;
+    terrain_ = terrain;
     p_ = p;
 
     const double rad = deg2rad(p_.windDir_deg);
@@ -27,8 +27,7 @@ bool Simulator3D::initialize(const Grid3D& grid, const TerrainDem& dem, const Pa
     Cnew_ = C_;
     solid_.assign(n, 0);
 
-    buildSolidMask(errOut);
-    if (!errOut.isEmpty()) return false;
+    buildSolidMask();
 
     t_ = 0.0;
     maxC_ = 0.0f;
@@ -42,15 +41,12 @@ void Simulator3D::reset() {
     maxC_ = 0.0f;
 }
 
-void Simulator3D::buildSolidMask(QString& errOut) {
-    errOut.clear();
-    if (!dem_) { errOut = "DEM is null"; return; }
-
+void Simulator3D::buildSolidMask() {
     for (int j = 0; j < grid_.Ny; ++j) {
         const double y = grid_.y(j);
         for (int i = 0; i < grid_.Nx; ++i) {
             const double x = grid_.x(i);
-            const float H = dem_->sampleBilinear(x, y);
+            const float H = terrain_ ? terrain_->height(x, y) : 0.0f;
 
             for (int k = 0; k < grid_.Nz; ++k) {
                 const double z = grid_.z(k);

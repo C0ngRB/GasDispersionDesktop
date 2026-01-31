@@ -4,7 +4,7 @@
 #include <QString>
 
 #include "Grid3D.h"
-#include "TerrainDem.h"
+#include "ITerrain.h"
 
 class Simulator3D {
 public:
@@ -25,7 +25,7 @@ public:
 
     Simulator3D() = default;
 
-    bool initialize(const Grid3D& grid, const TerrainDem& dem, const Params& p, QString& errOut);
+    bool initialize(const Grid3D& grid, const ITerrain* terrain, const Params& p, QString& errOut);
     void reset();
     double step();
     double stableDt() const;
@@ -36,12 +36,12 @@ public:
     float maxC() const { return maxC_; }
 
     void extractSliceXY(int zIndex, std::vector<float>& outSlice, float& outMax) const;
-    float groundZ(double x, double y) const { return dem_ ? dem_->sampleBilinear(x, y) : 0.0f; }
+    float groundZ(double x, double y) const { return terrain_ ? terrain_->height(x, y) : 0.0f; }
 
 private:
     Grid3D grid_;
     Params p_;
-    const TerrainDem* dem_{nullptr};
+    const ITerrain* terrain_{nullptr};
     double t_{0.0};
     double u_{0.0}, v_{0.0}, w_{0.0};
     std::vector<float> C_;
@@ -54,5 +54,5 @@ private:
     }
 
     float sampleC(int i, int j, int k) const;
-    void buildSolidMask(QString& errOut);
+    void buildSolidMask();
 };
