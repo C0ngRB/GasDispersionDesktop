@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 #include "ColorMap.h"
+#include "ExporterCsv.h"
 
 #include <QtWidgets/QWidget>
 #include <QtWidgets/QFormLayout>
@@ -8,6 +9,7 @@
 #include <QtWidgets/QGroupBox>
 #include <QtWidgets/QSplitter>
 #include <QDir>
+#include <QFileDialog>
 #include <algorithm>
 
 static QDoubleSpinBox *makeDsb(double minV, double maxV, double step, double val, int decimals = 3)
@@ -30,29 +32,48 @@ static QSpinBox *makeSsb(int minV, int maxV, int step, int val)
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 {
-  setWindowTitle("GasDispersionDesktop - Internal / External CFD");
-  resize(1200, 700);
+  setWindowTitle("GasDispersionDesktop - Internal / External / 3D Terrain CFD");
+  resize(1300, 760);
 
   auto *central = new QWidget(this);
   setCentralWidget(central);
 
   auto *splitter = new QSplitter(Qt::Horizontal, central);
 
-  // ---- Left panel: controls ----
   auto *left = new QWidget(splitter);
   auto *leftLayout = new QVBoxLayout(left);
 
-  // Backend selection
   auto *gbBackend = new QGroupBox("Backend", left);
   auto *backendForm = new QFormLayout(gbBackend);
   cbBackend_ = new QComboBox(gbBackend);
   cbBackend_->addItem("Internal (built-in)");
   cbBackend_->addItem("External CFD (runner.bat)");
+  cbBackend_->addItem("3D Terrain (DEM + 3D source)");
   leRunner_ = new QLineEdit(gbBackend);
   leRunner_->setPlaceholderText("e.g. tools\\run_mock_cfd.bat");
   leRunner_->setText("tools\\run_mock_cfd.bat");
   backendForm->addRow("Mode", cbBackend_);
   backendForm->addRow("Runner", leRunner_);
+
+  auto *gbDem = new QGroupBox("Terrain DEM (GeoTIFF)", left);
+  auto *demForm = new QFormLayout(gbDem);
+  leDemTif_ = new QLineEdit(gbDem);
+  leDemTif_->setPlaceholderText("Select GeoTIFF DEM (.tif)");
+  btnLoadDem_ = new QPushButton("Convert+Load", gbDem);
+  sbDemStride_ = makeSsb(1, 16, 1, 2);
+  demInfo_ = new QLabel("DEM: not loaded", gbDem);
+  demInfo_->setWordWrap(true);
+
+  auto *demRow = new QWidget(gbDem);
+  auto *demRowLayout = new QHBoxLayout(demRow);
+  demRowLayout->addWidget(leDemTif_, 1);
+  demRowLayout->addWidget(btnLoadDem_);
+
+  demForm->addRow("GeoTIFF path", demRow);
+  demForm->addRow("XY stride", sbDemStride_);
+  demForm->addRow("Info", demInfo_);
+
+  connect(btnLoadDem_, &QPushButton::clicked, this, &MainWindow::onLoadDemClicked);
 
   auto *gbWind = new QGroupBox("Wind", left);
   auto *windForm = new QFormLayout(gbWind);
@@ -61,7 +82,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
   windForm->addRow("Speed (m/s)", sbWindSpeed_);
   windForm->addRow("Direction (deg, 0=+x)", sbWindDir_);
 
-  auto *gbDomain = new QGroupBox("Domain & Grid", left);
+  auto *gbDomain = new QGroupBox("Domain & Grid (2D)", left);
   auto *domainForm = new QFormLayout(gbDomain);
   sbLx_ = makeDsb(10.0, 5000.0, 10.0, 200.0, 1);
   sbLy_ = makeDsb(10.0, 5000.0, 10.0, 100.0, 1);
@@ -72,15 +93,31 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
   domainForm->addRow("Nx", sbNx_);
   domainForm->addRow("Ny", sbNy_);
 
+  auto *gbZ3D = new QGroupBox("Vertical Domain (3D)", left);
+  auto *zForm = new QFormLayout(gbZ3D);
+  sbDz_ = makeDsb(0.1, 100.0, 0.1, 2.0, 2);
+  sbZTopMargin_ = makeDsb(1.0, 5000.0, 1.0, 200.0, 1);
+  sbNzMax_ = makeSsb(10, 2000, 10, 300);
+  sbZSlice_ = makeDsb(-1e9, 1e9, 1.0, 0.0, 2);
+  zForm->addRow("dz (m)", sbDz_);
+  zForm->addRow("zTop margin (m)", sbZTopMargin_);
+  zForm->addRow("Nz max", sbNzMax_);
+  zForm->addRow("zSlice (m)", sbZSlice_);
+
   auto *gbTime = new QGroupBox("Time", left);
   auto *timeForm = new QFormLayout(gbTime);
   sbTotalTime_ = makeDsb(1.0, 36000.0, 10.0, 60.0, 1);
   sbDt_        = makeDsb(1e-4, 10.0, 0.01, 0.05, 4);
-  cbAutoClampDt_ = new QCheckBox("Auto clamp dt (CFL/diffusion stable)", gbTime);
+  cbAutoClampDt_ = new QCheckBox("Auto clamp dt (stable)", gbTime);
   cbAutoClampDt_->setChecked(true);
+  cbExportCsv_ = new QCheckBox("Export CSV frames", gbTime);
+  cbExportCsv_->setChecked(true);
+  sbExportInterval_ = makeDsb(0.01, 10.0, 0.05, 0.20, 2);
   timeForm->addRow("Total (s)", sbTotalTime_);
   timeForm->addRow("dt (s)", sbDt_);
   timeForm->addRow(cbAutoClampDt_);
+  timeForm->addRow(cbExportCsv_);
+  timeForm->addRow("Export interval (s)", sbExportInterval_);
 
   auto *gbPhys = new QGroupBox("Dispersion", left);
   auto *physForm = new QFormLayout(gbPhys);
@@ -89,16 +126,24 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
   physForm->addRow("D (m^2/s)", sbD_);
   physForm->addRow("decay k (1/s)", sbDecay_);
 
-  auto *gbSrc = new QGroupBox("Point Source", left);
+  auto *gbSrc = new QGroupBox("Source", left);
   auto *srcForm = new QFormLayout(gbSrc);
   sbSrcX_ = makeDsb(0.0, 1e6, 1.0, 20.0, 2);
   sbSrcY_ = makeDsb(0.0, 1e6, 1.0, 50.0, 2);
+  sbSrcZ_ = makeDsb(-1e6, 1e6, 1.0, 2.0, 2);
   sbLeak_ = makeDsb(0.0, 1e9, 0.1, 1.0, 6);
   sbH_    = makeDsb(0.01, 1000.0, 0.1, 1.0, 3);
+  sbSrcRadius_ = makeDsb(0.0, 5000.0, 0.5, 2.0, 2);
   srcForm->addRow("x (m)", sbSrcX_);
   srcForm->addRow("y (m)", sbSrcY_);
+  srcForm->addRow("z (m, 3D)", sbSrcZ_);
   srcForm->addRow("Leak Q", sbLeak_);
   srcForm->addRow("Effective height H (m)", sbH_);
+  srcForm->addRow("srcRadius (m, 3D)", sbSrcRadius_);
+
+  btnSetSrcZFromGround_ = new QPushButton("Set srcZ = ground + H", gbSrc);
+  connect(btnSetSrcZFromGround_, &QPushButton::clicked, this, &MainWindow::onSetSrcZFromGroundClicked);
+  srcForm->addRow(btnSetSrcZFromGround_);
 
   auto *btnRow = new QWidget(left);
   auto *btnLayout = new QHBoxLayout(btnRow);
@@ -115,19 +160,20 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
   log_->setPlaceholderText("Log...");
 
   leftLayout->addWidget(gbBackend);
+  leftLayout->addWidget(gbDem);
   leftLayout->addWidget(gbWind);
   leftLayout->addWidget(gbDomain);
+  leftLayout->addWidget(gbZ3D);
   leftLayout->addWidget(gbTime);
   leftLayout->addWidget(gbPhys);
   leftLayout->addWidget(gbSrc);
   leftLayout->addWidget(btnRow);
   leftLayout->addWidget(log_, 1);
 
-  // ---- Right panel: visualization ----
   auto *right = new QWidget(splitter);
   auto *rightLayout = new QVBoxLayout(right);
   view_ = new QLabel(right);
-  view_->setMinimumSize(800, 500);
+  view_->setMinimumSize(900, 600);
   view_->setAlignment(Qt::AlignCenter);
   view_->setText("Click Run to start.");
   status_ = new QLabel(right);
@@ -148,7 +194,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
   connect(btnPause_, &QPushButton::clicked, this, &MainWindow::onPauseClicked);
   connect(btnReset_, &QPushButton::clicked, this, &MainWindow::onResetClicked);
 
-  // external backend
   ext_ = new ExternalCfdBackend(this);
   connect(ext_, &ExternalCfdBackend::logLine, this, &MainWindow::onExternalLog);
   connect(ext_, &ExternalCfdBackend::newFrameAvailable, this, &MainWindow::onExternalFrame);
@@ -179,9 +224,94 @@ SimParams MainWindow::readParams() const
   return p;
 }
 
+Simulator3D::Params MainWindow::readParams3D() const
+{
+  Simulator3D::Params p;
+  p.totalTime_s = sbTotalTime_->value();
+  p.dt_s = sbDt_->value();
+  p.autoClampDt = cbAutoClampDt_->isChecked();
+  p.windSpeed_mps = sbWindSpeed_->value();
+  p.windDir_deg = sbWindDir_->value();
+  p.K_m2ps = sbD_->value();
+  p.decay_1ps = sbDecay_->value();
+  p.srcX_m = sbSrcX_->value();
+  p.srcY_m = sbSrcY_->value();
+  p.srcZ_m = sbSrcZ_->value();
+  p.srcRadius_m = sbSrcRadius_->value();
+  p.leakRate = sbLeak_->value();
+  return p;
+}
+
+QString MainWindow::framesDir() const {
+  return QDir::current().filePath("outputs/frames");
+}
+
 void MainWindow::appendLog(const QString &s)
 {
   log_->appendPlainText(s);
+}
+
+void MainWindow::onLoadDemClicked()
+{
+  QString tifPath = leDemTif_->text().trimmed();
+  if (tifPath.isEmpty()) {
+    tifPath = QFileDialog::getOpenFileName(this, "Select DEM GeoTIFF", QDir::currentPath(), "GeoTIFF (*.tif *.tiff)");
+    if (tifPath.isEmpty()) return;
+    leDemTif_->setText(tifPath);
+  }
+
+  const QString outDir = QDir::current().filePath("outputs/dem_cache");
+  QDir().mkpath(outDir);
+
+  const QString cmd = QString("python tools/dem_convert.py --in \"%1\" --out_dir \"%2\"")
+                      .arg(tifPath).arg(outDir);
+
+  appendLog("[DEM] convert: " + cmd);
+  const int code = std::system(cmd.toLocal8Bit().constData());
+  if (code != 0) {
+    appendLog("[DEM] convert failed. Ensure rasterio or gdal is installed.");
+    return;
+  }
+
+  QString err;
+  const QString metaPath = QDir(outDir).filePath("dem_meta.json");
+  const QString binPath  = QDir(outDir).filePath("dem_data.bin");
+
+  if (!dem_.load(metaPath, binPath, err)) {
+    appendLog("[DEM] load failed: " + err);
+    return;
+  }
+
+  hasDem_ = true;
+
+  const auto& m = dem_.meta();
+  demInfo_->setText(QString("EPSG:%1 | %2x%3 | dx=%4 dy=%5 | z=[%6,%7]")
+                    .arg(m.epsg).arg(m.width).arg(m.height)
+                    .arg(m.dx).arg(m.dy)
+                    .arg(m.z_min, 0, 'f', 2)
+                    .arg(m.z_max, 0, 'f', 2));
+
+  const double cx = (dem_.minX() + dem_.maxX()) * 0.5;
+  const double cy = (dem_.minY() + dem_.maxY()) * 0.5;
+  sbSrcX_->setValue(cx);
+  sbSrcY_->setValue(cy);
+
+  const float gz = dem_.sampleBilinear(cx, cy);
+  sbSrcZ_->setValue(gz + sbH_->value());
+  sbZSlice_->setValue(gz + sbH_->value());
+
+  appendLog("[DEM] loaded OK.");
+}
+
+void MainWindow::onSetSrcZFromGroundClicked()
+{
+  if (!hasDem_) { appendLog("[SRC] DEM not loaded."); return; }
+  const double x = sbSrcX_->value();
+  const double y = sbSrcY_->value();
+  const float gz = dem_.sampleBilinear(x, y);
+  const double h = sbH_->value();
+  sbSrcZ_->setValue(gz + h);
+  appendLog(QString("[SRC] srcZ set to ground(%.2f)+H(%.2f)=%.2f").arg(gz).arg(h).arg(gz+h));
 }
 
 void MainWindow::rebuildSimulator()
@@ -256,9 +386,88 @@ void MainWindow::renderFieldExternal(const CsvFrameReader::Frame& fr)
                    .arg(Nx).arg(Ny));
 }
 
+bool MainWindow::buildSimulation3D(QString& errOut)
+{
+  errOut.clear();
+  if (!hasDem_) { errOut = "DEM not loaded"; return false; }
+
+  const auto& m = dem_.meta();
+  const int stride = std::max(1, sbDemStride_->value());
+
+  Grid3D g;
+  g.Nx = std::max(2, m.width / stride);
+  g.Ny = std::max(2, m.height / stride);
+  g.dx = m.dx * stride;
+  g.dy = m.dy * stride;
+  g.x0 = m.origin_x;
+  g.y0 = m.origin_y;
+
+  const double dz = sbDz_->value();
+  const double zTop = m.z_max + sbZTopMargin_->value();
+  g.z0 = m.z_min;
+  g.dz = dz;
+
+  int Nz = static_cast<int>(std::floor((zTop - g.z0) / g.dz)) + 1;
+  Nz = std::clamp(Nz, 2, sbNzMax_->value());
+  g.Nz = Nz;
+
+  Simulator3D::Params p = readParams3D();
+
+  if (!sim3d_.initialize(g, dem_, p, errOut)) return false;
+
+  sim3dReady_ = true;
+  return true;
+}
+
+void MainWindow::renderField3D()
+{
+  if (!sim3dReady_) return;
+
+  const auto& g = sim3d_.grid();
+  const double zSlice = sbZSlice_->value();
+  int k = static_cast<int>(std::round((zSlice - g.z0) / g.dz));
+  k = std::clamp(k, 0, g.Nz - 1);
+
+  std::vector<float> slice;
+  float sliceMax = 0.0f;
+  sim3d_.extractSliceXY(k, slice, sliceMax);
+
+  const int Nx = g.Nx;
+  const int Ny = g.Ny;
+
+  const int maxW = 900, maxH = 600;
+  const double sx = (double)Nx / maxW;
+  const double sy = (double)Ny / maxH;
+  const double s = std::max(1.0, std::max(sx, sy));
+  const int W = std::max(1, (int)std::round(Nx / s));
+  const int H = std::max(1, (int)std::round(Ny / s));
+
+  QImage img(W, H, QImage::Format_RGB32);
+  const float maxC = std::max(1e-12f, sliceMax);
+
+  for (int y = 0; y < H; ++y) {
+    int j = std::clamp((int)std::round(y * s), 0, Ny - 1);
+    for (int x = 0; x < W; ++x) {
+      int i = std::clamp((int)std::round(x * s), 0, Nx - 1);
+      const float c = slice[static_cast<std::size_t>(i) + static_cast<std::size_t>(j) * Nx];
+      const float n = c / maxC;
+      img.setPixelColor(x, H - 1 - y, colorMap(n));
+    }
+  }
+
+  view_->setPixmap(QPixmap::fromImage(img).scaled(view_->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+
+  status_->setText(QString("3D TERRAIN | t=%.3f s | zSlice=%.2f (k=%1/%2) | maxC=%.6g | EPSG:%3")
+                   .arg(sim3d_.time(), 0, 'f', 3)
+                   .arg(g.z(k), 0, 'f', 2)
+                   .arg(k).arg(g.Nz - 1)
+                   .arg(sliceMax, 0, 'g', 6)
+                   .arg(dem_.meta().epsg));
+}
+
 void MainWindow::onRunClicked()
 {
-  mode_ = (cbBackend_->currentIndex() == 0) ? BackendMode::Internal : BackendMode::External;
+  mode_ = static_cast<BackendMode>(cbBackend_->currentIndex());
   if (mode_ == BackendMode::Internal) {
     rebuildSimulator();
     running_ = true;
@@ -266,16 +475,28 @@ void MainWindow::onRunClicked()
     appendLog("[Run] INTERNAL start");
     return;
   }
-  // External CFD
-  hasLastFrame_ = false;
-  running_ = true;
-  timer_->start();
-  appendLog("[Run] EXTERNAL start");
-  ExternalCfdBackend::Config cfg;
-  cfg.runnerPath = leRunner_->text().trimmed();
-  cfg.workRootDir = "work";
-  cfg.pollIntervalMs = 100;
-  ext_->start(readParams(), cfg);
+  if (mode_ == BackendMode::External) {
+    hasLastFrame_ = false;
+    running_ = true;
+    timer_->start();
+    appendLog("[Run] EXTERNAL start");
+    ExternalCfdBackend::Config cfg;
+    cfg.runnerPath = leRunner_->text().trimmed();
+    cfg.workRootDir = "work";
+    cfg.pollIntervalMs = 100;
+    ext_->start(readParams(), cfg);
+    return;
+  }
+  if (mode_ == BackendMode::Terrain3D) {
+    QString err;
+    if (!buildSimulation3D(err)) {
+      appendLog("[Run] 3D build failed: " + err);
+      return;
+    }
+    running_ = true;
+    timer_->start();
+    appendLog("[Run] 3D TERRAIN start");
+  }
 }
 
 void MainWindow::onPauseClicked()
@@ -291,8 +512,12 @@ void MainWindow::onResetClicked()
   running_ = false;
   timer_->stop();
   if (mode_ == BackendMode::External) ext_->stop();
-  rebuildSimulator();
-  renderFieldInternal();
+  if (mode_ == BackendMode::Internal) {
+    rebuildSimulator();
+    renderFieldInternal();
+  } else if (mode_ == BackendMode::Terrain3D) {
+    sim3dReady_ = false;
+  }
   appendLog("[Reset] done");
 }
 
@@ -310,8 +535,62 @@ void MainWindow::onTick()
     renderFieldInternal();
     return;
   }
-  // External: 如果新帧没到，就维持最后一帧；这里主要用于保持 UI 刷新
-  if (hasLastFrame_) renderFieldExternal(lastFrame_);
+  if (mode_ == BackendMode::External) {
+    if (hasLastFrame_) renderFieldExternal(lastFrame_);
+    return;
+  }
+  if (mode_ == BackendMode::Terrain3D) {
+    const auto p = readParams3D();
+    if (sim3d_.time() >= p.totalTime_s) {
+      running_ = false; timer_->stop();
+      appendLog("[Done] 3D TERRAIN reached total time");
+      return;
+    }
+    for (int s = 0; s < 2; ++s) sim3d_.step();
+    renderField3D();
+
+    if (cbExportCsv_->isChecked()) {
+      const double t = sim3d_.time();
+      const auto& g = sim3d_.grid();
+      const double zSlice = sbZSlice_->value();
+      int k = static_cast<int>(std::round((zSlice - g.z0) / g.dz));
+      k = std::clamp(k, 0, g.Nz - 1);
+
+      static double nextExportT = 0.0;
+      static int frameId = 0;
+      if (t + 1e-12 >= nextExportT) {
+        const QString dir = framesDir();
+        QDir().mkpath(dir);
+
+        std::vector<float> grid2d;
+        float mx = 0.0f;
+        sim3d_.extractSliceXY(k, grid2d, mx);
+
+        ExporterCsv::FrameMeta meta;
+        meta.epsg = dem_.meta().epsg;
+        meta.origin_x = g.x0;
+        meta.origin_y = g.y0;
+        meta.dx = g.dx;
+        meta.dy = g.dy;
+        meta.z  = g.z(k);
+        meta.Nx = g.Nx;
+        meta.Ny = g.Ny;
+        meta.t  = t;
+
+        const QString path = QDir(dir).filePath(QString("frame_%1.csv").arg(frameId, 4, 10, QLatin1Char('0')));
+        QString err;
+        if (!ExporterCsv::writeGridFrame(path, meta, grid2d, err)) {
+          appendLog("[CSV] write failed: " + err);
+        } else {
+          appendLog("[CSV] wrote: " + path);
+        }
+
+        frameId++;
+        nextExportT += sbExportInterval_->value();
+      }
+    }
+    return;
+  }
 }
 
 void MainWindow::onExternalLog(const QString& s)
@@ -329,5 +608,4 @@ void MainWindow::onExternalFrame(const CsvFrameReader::Frame& f)
 void MainWindow::onExternalFinished(bool ok, const QString& msg)
 {
   appendLog(QString("[ExternalFinished] ok=%1 %2").arg(ok).arg(msg));
-  // 让 UI 停在最后一帧
 }

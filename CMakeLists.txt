@@ -19,6 +19,13 @@ add_executable(GasDispersionDesktop
   src/ExternalCfdBackend.cpp
   src/CsvFrameReader.h
   src/CsvFrameReader.cpp
+  src/Grid3D.h
+  src/TerrainDem.h
+  src/TerrainDem.cpp
+  src/Simulator3D.h
+  src/Simulator3D.cpp
+  src/ExporterCsv.h
+  src/ExporterCsv.cpp
 )
 
 target_link_libraries(GasDispersionDesktop PRIVATE Qt6::Widgets Qt6::Core)
@@ -28,7 +35,7 @@ install(TARGETS GasDispersionDesktop RUNTIME DESTINATION .)
 
 set(CPACK_PACKAGE_NAME "GasDispersionDesktop")
 set(CPACK_PACKAGE_VENDOR "Local")
-set(CPACK_PACKAGE_VERSION "0.2.0")
+set(CPACK_PACKAGE_VERSION "0.3.0")
 set(CPACK_GENERATOR "NSIS")
 set(CPACK_NSIS_DISPLAY_NAME "GasDispersionDesktop")
 set(CPACK_NSIS_PACKAGE_NAME "GasDispersionDesktop")
