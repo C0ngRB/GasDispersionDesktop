@@ -10,6 +10,11 @@
 
 ## 构建（Windows / Visual Studio）
 ```powershell
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-cmake --build build --config Release
-.\build\Release\GasDispersionDesktop.exe
+# 1) 配置（生成 build-mingw 构建树）
+cmake -S . -B build-mingw -G "MinGW Makefiles" `
+  -DCMAKE_BUILD_TYPE=Release `
+  -DCMAKE_PREFIX_PATH="C:\Qt\6.9.3\mingw_64"
+
+# 2) 构建（生成 exe）
+cmake --build build-mingw -- -j 8
+
