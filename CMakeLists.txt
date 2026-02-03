@@ -1,46 +1,46 @@
 cmake_minimum_required(VERSION 3.20)
-project(GasDispersionDesktop LANGUAGES CXX)
+project(GasDispersionDesktop VERSION 1.0.0 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
+set(CMAKE_AUTOUIC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Core)
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets)
 
-qt_standard_project_setup()
-
-add_executable(GasDispersionDesktop
-  src/main.cpp
-  src/MainWindow.h
-  src/MainWindow.cpp
-  src/Simulator.h
-  src/Simulator.cpp
-  src/ColorMap.h
-  src/ExternalCfdBackend.h
-  src/ExternalCfdBackend.cpp
-  src/CsvFrameReader.h
-  src/CsvFrameReader.cpp
-  src/Grid3D.h
-  src/ITerrain.h
-  src/TerrainFlat.h
-  src/TerrainProcedural.h
-  src/TerrainDem.h
-  src/TerrainDem.cpp
-  src/Simulator3D.h
-  src/Simulator3D.cpp
-  src/ExporterCsv.h
-  src/ExporterCsv.cpp
+set(SOURCES
+    src/main.cpp
+    src/MainWindow.cpp
+    src/Simulator3D.cpp
+    src/TerrainDem.cpp
+    src/ExporterCsv.cpp
 )
 
-target_link_libraries(GasDispersionDesktop PRIVATE Qt6::Widgets Qt6::Core)
+set(HEADERS
+    src/MainWindow.h
+    src/Simulator3D.h
+    src/Grid3D.h
+    src/ITerrain.h
+    src/TerrainDem.h
+    src/TerrainFlat.h
+    src/TerrainProcedural.h
+    src/ColorMap.h
+    src/ExporterCsv.h
+)
 
-include(InstallRequiredSystemLibraries)
-install(TARGETS GasDispersionDesktop RUNTIME DESTINATION .)
+add_executable(GasDispersionDesktop ${SOURCES} ${HEADERS})
 
-set(CPACK_PACKAGE_NAME "GasDispersionDesktop")
-set(CPACK_PACKAGE_VENDOR "Local")
-set(CPACK_PACKAGE_VERSION "0.3.0")
-set(CPACK_GENERATOR "NSIS")
-set(CPACK_NSIS_DISPLAY_NAME "GasDispersionDesktop")
-set(CPACK_NSIS_PACKAGE_NAME "GasDispersionDesktop")
-set(CPACK_NSIS_MODIFY_PATH OFF)
-include(CPack)
+target_link_libraries(GasDispersionDesktop Qt6::Core Qt6::Widgets)
+
+target_include_directories(GasDispersionDesktop PRIVATE src)
+
+if(MSVC)
+    target_compile_options(GasDispersionDesktop PRIVATE /W4)
+else()
+    target_compile_options(GasDispersionDesktop PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+install(TARGETS GasDispersionDesktop
+    RUNTIME DESTINATION bin
+)
