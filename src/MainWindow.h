@@ -11,6 +11,8 @@
 #include <QtWidgets/QScrollArea>
 #include <QTimer>
 
+#include <vector>
+
 #include "TerrainDem.h"
 #include "TerrainFlat.h"
 #include "TerrainProcedural.h"
@@ -32,6 +34,8 @@ private slots:
     void onPauseClicked();
     void onResetClicked();
     void onTick();
+
+    void onFollowSliceToggled(bool on);
 
 private:
     enum class TerrainMode { Flat = 0, Dem = 1, Procedural = 2 };
@@ -69,6 +73,7 @@ private:
     QDoubleSpinBox* sbZTopMargin_{nullptr};
     QSpinBox* sbNzMax_{nullptr};
     QDoubleSpinBox* sbZSlice_{nullptr};
+    QCheckBox* cbFollowSlice_{nullptr};
 
     QDoubleSpinBox* sbWindSpeed_{nullptr};
     QDoubleSpinBox* sbWindDir_{nullptr};
@@ -80,6 +85,7 @@ private:
     QCheckBox* cbAutoClampDt_{nullptr};
     QCheckBox* cbExportCsv_{nullptr};
     QDoubleSpinBox* sbExportInterval_{nullptr};
+    QCheckBox* cbExportTwoSlices_{nullptr};
 
     QDoubleSpinBox* sbSrcX_{nullptr};
     QDoubleSpinBox* sbSrcY_{nullptr};
@@ -130,4 +136,11 @@ private:
 
     bool buildSimulation(QString& errOut);
     Simulator3D::Params readSimParams() const;
+
+    float groundAtSource() const;
+    double clampSliceToFluid(double z) const;
+    double effectiveZSlice() const;
+    double aglSliceZ() const;
+    int zToK(double z) const;
+    void syncSliceWithSourceIfNeeded();
 };

@@ -11,8 +11,10 @@
 #include <QtWidgets/QFileDialog>
 
 #include <QDir>
+
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 static QDoubleSpinBox* makeDsb(double minV, double maxV, double step, double val, int decimals=3) {
     auto* sb = new QDoubleSpinBox();
@@ -62,6 +64,44 @@ void MainWindow::updateDomainInfo() {
     domainInfo_->setText(QString("Nx=%1 Ny=%2 (non-DEM)").arg(Nx).arg(Ny));
 }
 
+float MainWindow::groundAtSource() const {
+    const ITerrain* terr = currentTerrain();
+    if (!terr || !terr->isValid()) return 0.0f;
+    const double x = sbSrcX_->value();
+    const double y = sbSrcY_->value();
+    return terr->height(x, y);
+}
+
+double MainWindow::clampSliceToFluid(double z) const {
+    const double dz = std::max(1e-9, sbDz_->value());
+    const double g  = (double)groundAtSource();
+    const double zMinFluid = g + 0.5 * dz + 1e-6;
+    return std::max(z, zMinFluid);
+}
+
+double MainWindow::effectiveZSlice() const {
+    const double zWanted = cbFollowSlice_->isChecked() ? sbSrcZ_->value() : sbZSlice_->value();
+    return clampSliceToFluid(zWanted);
+}
+
+double MainWindow::aglSliceZ() const {
+    const double zWanted = (double)groundAtSource() + sbAgl_->value();
+    return clampSliceToFluid(zWanted);
+}
+
+int MainWindow::zToK(double z) const {
+    const auto& g = sim_.grid();
+    int k = (int)std::llround((z - g.z0) / g.dz);
+    return std::clamp(k, 0, g.Nz - 1);
+}
+
+void MainWindow::syncSliceWithSourceIfNeeded() {
+    if (!cbFollowSlice_->isChecked()) return;
+    sbZSlice_->blockSignals(true);
+    sbZSlice_->setValue(sbSrcZ_->value());
+    sbZSlice_->blockSignals(false);
+}
+
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle("GasDispersionDesktop - Scrollable UI + Terrain Preview + Overlay");
     resize(1400, 800);
@@ -85,7 +125,6 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     cbTerrainMode_->addItem("Flat (default)");
     cbTerrainMode_->addItem("DEM (GeoTIFF)");
     cbTerrainMode_->addItem("Procedural (Gaussian Hill)");
-
     terrainForm->addRow("Mode", cbTerrainMode_);
 
     sbFlatZ_ = makeDsb(-10000.0, 10000.0, 1.0, 0.0, 2);
@@ -156,12 +195,17 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     sbDz_ = makeDsb(0.1, 100.0, 0.1, 2.0, 2);
     sbZTopMargin_ = makeDsb(1.0, 5000.0, 1.0, 200.0, 1);
     sbNzMax_ = makeSsb(10, 2000, 10, 300);
-    sbZSlice_ = makeDsb(-1e12, 1e12, 1.0, 0.0, 2);
+    sbZSlice_ = makeDsb(-1e12, 1e12, 1.0, 2.0, 2);
+    cbFollowSlice_ = new QCheckBox("Slice follows source (zSlice=srcZ)", gbZ);
+    cbFollowSlice_->setChecked(true);
 
     zForm->addRow("dz (m)", sbDz_);
     zForm->addRow("zTop margin (m)", sbZTopMargin_);
     zForm->addRow("Nz max", sbNzMax_);
     zForm->addRow("zSlice (m)", sbZSlice_);
+    zForm->addRow(cbFollowSlice_);
+
+    connect(cbFollowSlice_, &QCheckBox::toggled, this, &MainWindow::onFollowSliceToggled);
 
     auto* gbPhys = new QGroupBox("Wind & Physics", leftInner);
     auto* physForm = new QFormLayout(gbPhys);
@@ -187,18 +231,22 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     cbExportCsv_->setChecked(true);
     sbExportInterval_ = makeDsb(0.01, 10.0, 0.05, 0.20, 2);
 
+    cbExportTwoSlices_ = new QCheckBox("Export TWO slices per frame (zSlice + AGL)", gbTime);
+    cbExportTwoSlices_->setChecked(true);
+
     timeForm->addRow("Total (s)", sbTotalTime_);
     timeForm->addRow("dt (s)", sbDt_);
     timeForm->addRow(cbAutoClampDt_);
     timeForm->addRow(cbExportCsv_);
     timeForm->addRow("Export interval (s)", sbExportInterval_);
+    timeForm->addRow(cbExportTwoSlices_);
 
     auto* gbSrc = new QGroupBox("3D Source", leftInner);
     auto* srcForm = new QFormLayout(gbSrc);
 
     sbSrcX_ = makeDsb(-1e12, 1e12, 1.0, 0.0, 2);
     sbSrcY_ = makeDsb(-1e12, 1e12, 1.0, 0.0, 2);
-    sbSrcZ_ = makeDsb(-1e12, 1e12, 1.0, 0.0, 2);
+    sbSrcZ_ = makeDsb(-1e12, 1e12, 1.0, 2.0, 2);
     sbSrcRadius_ = makeDsb(0.0, 5000.0, 0.5, 2.0, 2);
     sbLeak_ = makeDsb(0.0, 1e9, 0.1, 1.0, 6);
 
@@ -282,7 +330,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     timer_->setInterval(33);
     connect(timer_, &QTimer::timeout, this, &MainWindow::onTick);
 
+    syncSliceWithSourceIfNeeded();
     onTerrainParamsChanged();
+}
+
+void MainWindow::onFollowSliceToggled(bool) {
+    syncSliceWithSourceIfNeeded();
+    if (terrainPreviewReady_) renderTerrainOnly();
 }
 
 void MainWindow::onPickDemClicked() {
@@ -330,7 +384,8 @@ void MainWindow::onConvertLoadDemClicked() {
 
     const float gz = dem_.height(cx, cy);
     sbSrcZ_->setValue(gz + sbAgl_->value());
-    sbZSlice_->setValue(gz + sbAgl_->value());
+
+    syncSliceWithSourceIfNeeded();
 
     appendLog("[DEM] loaded OK.");
 
@@ -353,6 +408,8 @@ void MainWindow::onTerrainParamsChanged() {
     proc_.setMode(TerrainProcedural::Mode::GaussianHill);
     proc_.setBaseZ((float)sbProcBaseZ_->value());
     proc_.setGaussian(TerrainProcedural::Gaussian{(double)xc, (double)yc, sbProcPeakA_->value(), sbProcSigma_->value()});
+
+    syncSliceWithSourceIfNeeded();
 
     QString err;
     if (!buildTerrainPreview(err)) {
@@ -475,11 +532,12 @@ void MainWindow::renderTerrainOnly() {
 
     view_->setPixmap(QPixmap::fromImage(img).scaled(view_->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
 
-    status_->setText(QString("TERRAIN | mode=%1 | z=[%2,%3] | Nx=%4 Ny=%5")
+    status_->setText(QString("TERRAIN | mode=%1 | z=[%2,%3] | Nx=%4 Ny=%5 | followSlice=%6")
                      .arg(cbTerrainMode_->currentText())
                      .arg(tMin_, 0, 'f', 2)
                      .arg(tMax_, 0, 'f', 2)
-                     .arg(Nx).arg(Ny));
+                     .arg(Nx).arg(Ny)
+                     .arg(cbFollowSlice_->isChecked() ? "on" : "off"));
 }
 
 Simulator3D::Params MainWindow::readSimParams() const {
@@ -531,7 +589,15 @@ bool MainWindow::buildSimulation(QString& errOut) {
     Nz = std::clamp(Nz, 2, sbNzMax_->value());
     g.Nz = Nz;
 
-    const auto p = readSimParams();
+    auto p = readSimParams();
+    const double zMin = clampSliceToFluid(p.srcZ_m);
+    if (p.srcZ_m < zMin) {
+        appendLog(QString("[S1] srcZ clamped from %1 to %2 (avoid solid layer)")
+                  .arg(p.srcZ_m, 0, 'f', 2).arg(zMin, 0, 'f', 2));
+        p.srcZ_m = zMin;
+        sbSrcZ_->setValue(zMin);
+        syncSliceWithSourceIfNeeded();
+    }
 
     if (!sim_.initialize(g, terr, p, errOut)) return false;
 
@@ -551,9 +617,9 @@ void MainWindow::renderTerrainAndSlice() {
     if (!simReady_ || !terrainPreviewReady_) { renderTerrainOnly(); return; }
 
     const auto& g = sim_.grid();
-    const double zSlice = sbZSlice_->value();
-    int k = (int)std::round((zSlice - g.z0) / g.dz);
-    k = std::clamp(k, 0, g.Nz - 1);
+
+    const double zEff = effectiveZSlice();
+    const int k = zToK(zEff);
 
     sim_.extractSliceXY(k, slice_, sliceMax_);
     const int Nx = g.Nx;
@@ -619,13 +685,18 @@ void MainWindow::renderTerrainAndSlice() {
 
     view_->setPixmap(QPixmap::fromImage(img).scaled(view_->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
 
-    status_->setText(QString("SIM | t=%.3f s | zSlice=%.2f (k=%1/%2) | maxC=%.6g | terrain[%3,%4]")
+    const double gsrc = (double)groundAtSource();
+    const double zAgl = aglSliceZ();
+
+    status_->setText(QString("SIM | t=%1 s | zEff=%2 (k=%3/%4, z(k)=%5) | sliceMax=%6 | srcZ=%7 | ground=%8 | zAGL=%9")
                      .arg(sim_.time(), 0, 'f', 3)
-                     .arg(g.z(k), 0, 'f', 2)
+                     .arg(zEff, 0, 'f', 2)
                      .arg(k).arg(g.Nz - 1)
+                     .arg(g.z(k), 0, 'f', 2)
                      .arg(sliceMax_, 0, 'g', 6)
-                     .arg(tMin_, 0, 'f', 2)
-                     .arg(tMax_, 0, 'f', 2));
+                     .arg(sbSrcZ_->value(), 0, 'f', 2)
+                     .arg(gsrc, 0, 'f', 2)
+                     .arg(zAgl, 0, 'f', 2));
 }
 
 void MainWindow::onSetSrcZFromGroundClicked() {
@@ -635,11 +706,15 @@ void MainWindow::onSetSrcZFromGroundClicked() {
     const double y = sbSrcY_->value();
     const float gz = terr->height(x, y);
     const double agl = sbAgl_->value();
-    sbSrcZ_->setValue(gz + agl);
-    appendLog(QString("[SRC] srcZ = ground(%.2f)+AGL(%.2f)=%.2f").arg(gz).arg(agl).arg(gz+agl));
+    const double newZ = clampSliceToFluid(gz + agl);
+    sbSrcZ_->setValue(newZ);
+    syncSliceWithSourceIfNeeded();
+    appendLog(QString("[SRC] srcZ = clamp(ground(%.2f)+AGL(%.2f)) => %.2f").arg(gz,0,'f',2).arg(agl,0,'f',2).arg(newZ,0,'f',2));
 }
 
 void MainWindow::onRunClicked() {
+    syncSliceWithSourceIfNeeded();
+
     if (!simReady_) {
         QString err;
         if (!buildSimulation(err)) {
@@ -690,31 +765,42 @@ void MainWindow::onTick() {
             QDir().mkpath(dir);
 
             const auto& g = sim_.grid();
-            const double zSlice = sbZSlice_->value();
-            int k = (int)std::round((zSlice - g.z0) / g.dz);
-            k = std::clamp(k, 0, g.Nz - 1);
 
-            std::vector<float> grid2d;
-            float mx = 0.0f;
-            sim_.extractSliceXY(k, grid2d, mx);
+            auto writeSlice = [&](const QString& suffix, double zWorld) {
+                int k = zToK(zWorld);
+                std::vector<float> grid2d;
+                float mx = 0.0f;
+                sim_.extractSliceXY(k, grid2d, mx);
 
-            ExporterCsv::FrameMeta meta;
-            meta.epsg = (terrainMode() == TerrainMode::Dem && hasDem_) ? dem_.meta().epsg : 0;
-            meta.origin_x = g.x0;
-            meta.origin_y = g.y0;
-            meta.dx = g.dx;
-            meta.dy = g.dy;
-            meta.z  = g.z(k);
-            meta.Nx = g.Nx;
-            meta.Ny = g.Ny;
-            meta.t  = t;
+                ExporterCsv::FrameMeta meta;
+                meta.epsg = (terrainMode() == TerrainMode::Dem && hasDem_) ? dem_.meta().epsg : 0;
+                meta.origin_x = g.x0;
+                meta.origin_y = g.y0;
+                meta.dx = g.dx;
+                meta.dy = g.dy;
+                meta.z  = g.z(k);
+                meta.Nx = g.Nx;
+                meta.Ny = g.Ny;
+                meta.t  = t;
 
-            const QString path = QDir(dir).filePath(QString("frame_%1.csv").arg(frameId_, 4, 10, QLatin1Char('0')));
-            QString err;
-            if (!ExporterCsv::writeGridFrame(path, meta, grid2d, err)) {
-                appendLog("[CSV] write failed: " + err);
-            } else {
-                appendLog("[CSV] wrote: " + path);
+                const QString path = QDir(dir).filePath(
+                    QString("frame_%1_%2.csv").arg(frameId_, 4, 10, QLatin1Char('0')).arg(suffix)
+                );
+                QString err;
+                if (!ExporterCsv::writeGridFrame(path, meta, grid2d, err)) {
+                    appendLog("[CSV] write failed: " + err);
+                } else {
+                    appendLog("[CSV] wrote: " + path + QString(" (k=%1, z=%2, max=%3)")
+                              .arg(k).arg(meta.z,0,'f',2).arg(mx,0,'g',6));
+                }
+            };
+
+            const double zEff = effectiveZSlice();
+            writeSlice("zslice", zEff);
+
+            if (cbExportTwoSlices_->isChecked()) {
+                const double zAgl = aglSliceZ();
+                writeSlice("agl", zAgl);
             }
 
             frameId_++;
