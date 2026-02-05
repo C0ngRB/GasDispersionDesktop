@@ -94,6 +94,9 @@ private:
     QDoubleSpinBox* sbLeak_{nullptr};
     QDoubleSpinBox* sbAgl_{nullptr};
     QPushButton* btnSetSrcZFromGround_{nullptr};
+    QCheckBox* cbAutoCenterSrc_{nullptr};
+
+    QDoubleSpinBox* sbDisplayCutoffRel_{nullptr};
 
     QPushButton* btnRun_{nullptr};
     QPushButton* btnPause_{nullptr};
@@ -143,4 +146,5 @@ private:
     double aglSliceZ() const;
     int zToK(double z) const;
     void syncSliceWithSourceIfNeeded();
+    void enforceSourceCenterIfNeeded();
 };

@@ -64,6 +64,39 @@ void MainWindow::updateDomainInfo() {
     domainInfo_->setText(QString("Nx=%1 Ny=%2 (non-DEM)").arg(Nx).arg(Ny));
 }
 
+void MainWindow::enforceSourceCenterIfNeeded() {
+    if (!cbAutoCenterSrc_ || !cbAutoCenterSrc_->isChecked()) return;
+    if (terrainMode() == TerrainMode::Dem) return;
+    if (!terrainPreviewReady_) return;
+
+    const double xMin = tx0_;
+    const double yMin = ty0_;
+    const double xMax = tx0_ + (tNx_ - 1) * tdx_;
+    const double yMax = ty0_ + (tNy_ - 1) * tdy_;
+    const double cx = 0.5 * (xMin + xMax);
+    const double cy = 0.5 * (yMin + yMax);
+
+    const double x = sbSrcX_->value();
+    const double y = sbSrcY_->value();
+
+    const double eps = 1e-9;
+
+    const bool out =
+        (x < xMin - eps) || (x > xMax + eps) ||
+        (y < yMin - eps) || (y > yMax + eps);
+
+    const bool atCorner =
+        (std::abs(x - xMin) < 1e-6) && (std::abs(y - yMin) < 1e-6);
+
+    if (out || atCorner) {
+        sbSrcX_->setValue(cx);
+        sbSrcY_->setValue(cy);
+        appendLog(QString("[SRC] auto-centered to domain center: (%1, %2)")
+                  .arg(cx, 0, 'f', 2).arg(cy, 0, 'f', 2));
+        syncSliceWithSourceIfNeeded();
+    }
+}
+
 float MainWindow::groundAtSource() const {
     const ITerrain* terr = currentTerrain();
     if (!terr || !terr->isValid()) return 0.0f;
@@ -241,6 +274,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     timeForm->addRow("Export interval (s)", sbExportInterval_);
     timeForm->addRow(cbExportTwoSlices_);
 
+    auto* gbViz = new QGroupBox("Visualization", leftInner);
+    auto* vizForm = new QFormLayout(gbViz);
+
+    sbDisplayCutoffRel_ = makeDsb(0.0, 0.5, 1e-3, 1e-3, 6);
+    vizForm->addRow("Cutoff (relative to sliceMax)", sbDisplayCutoffRel_);
+
+    leftLayout->addWidget(gbViz);
+
     auto* gbSrc = new QGroupBox("3D Source", leftInner);
     auto* srcForm = new QFormLayout(gbSrc);
 
@@ -260,6 +301,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     srcForm->addRow("leakRate", sbLeak_);
     srcForm->addRow("AGL (m)", sbAgl_);
     srcForm->addRow(btnSetSrcZFromGround_);
+
+    cbAutoCenterSrc_ = new QCheckBox("Auto center source in non-DEM (recommended)", gbSrc);
+    cbAutoCenterSrc_->setChecked(true);
+    srcForm->addRow(cbAutoCenterSrc_);
 
     connect(btnSetSrcZFromGround_, &QPushButton::clicked, this, &MainWindow::onSetSrcZFromGroundClicked);
 
@@ -419,6 +464,7 @@ void MainWindow::onTerrainParamsChanged() {
         return;
     }
 
+    enforceSourceCenterIfNeeded();
     renderTerrainOnly();
 }
 
@@ -636,6 +682,8 @@ void MainWindow::renderTerrainAndSlice() {
 
     const float denomH = std::max(1e-6f, tMax_ - tMin_);
     const float maxC = std::max(1e-12f, sliceMax_);
+    const float relCut = sbDisplayCutoffRel_ ? (float)sbDisplayCutoffRel_->value() : 0.0f;
+    const float cCut = relCut * maxC;
 
     const double lx = -1.0, ly = -1.0, lz = 1.0;
     const double ln = std::sqrt(lx*lx + ly*ly + lz*lz);
@@ -670,7 +718,7 @@ void MainWindow::renderTerrainAndSlice() {
             double r = bg, gch = bg, b = bg;
 
             const float c = slice_[(std::size_t)i + (std::size_t)j * Nx];
-            if (c > 0.0f) {
+            if (c > cCut) {
                 const float cn = clamp01(c / maxC);
                 QColor cc = colorMap(cn);
                 const double a = 0.15 + 0.75 * std::sqrt(cn);
