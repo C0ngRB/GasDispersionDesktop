@@ -1,3 +1,55 @@
+/**
+ * @file MainWindow.cpp
+ * @brief GasDispersionDesktop 主窗口实现
+ *
+ * 【实现说明】
+ * 实现MainWindow类的所有功能，包括：
+ * - UI构建和布局管理
+ * - 参数验证和地形预览
+ * - 仿真生命周期管理
+ * - 可视化渲染（地形+浓度切片）
+ * - 数据导出
+ *
+ * 【UI组件组织】
+ * 使用Qt Designer风格的代码布局：
+ * 1. 构造函数：创建所有UI组件并建立信号槽连接
+ * 2. 地形相关槽函数：处理DEM加载、预览等
+ * 3. 仿真控制槽函数：Run/Pause/Reset
+ * 4. 渲染函数：buildTerrainPreview, renderTerrainOnly, renderTerrainAndSlice
+ * 5. 辅助函数：坐标系转换、单位转换等
+ *
+ * 【渲染流程】
+ * 1. buildTerrainPreview():
+ *    - 根据地形模式选择数据源
+ *    - 构建二维高程数组
+ *    - 计算高程范围（minZ, maxZ）
+ *
+ * 2. renderTerrainOnly():
+ *    - 对每个像素计算对应的网格位置
+ *    - 使用hillshade算法渲染地形
+ *    - 添加固定padding(0.35)拉远视野
+ *
+ * 3. renderTerrainAndSlice():
+ *    - 调用Simulator3D::extractSliceXY()获取浓度切片
+ *    - 根据背景模式选择底色（地形灰度/纯蓝）
+ *    - 使用colorMap()将浓度映射为颜色
+ *    - 半透明叠加显示
+ *
+ * 【坐标系转换】
+ * 网格坐标 (i,j) → 世界坐标 (x,y):
+ *   x = x0 + dx * i
+ *   y = y0 + dy * j
+ *
+ * 像素坐标 (px,py) → 网格坐标 (i,j):
+ *   i = round(px * scale)
+ *   j = round(py * scale)
+ *
+ * 【与Simulator3D的交互】
+ * - buildSimulation(): 创建Grid3D，调用Simulator3D::initialize()
+ * - onTick(): 调用Simulator3D::step()推进仿真
+ * - renderTerrainAndSlice(): 调用Simulator3D::extractSliceXY()获取数据
+ */
+
 #include "MainWindow.h"
 #include "ColorMap.h"
 #include "ExporterCsv.h"

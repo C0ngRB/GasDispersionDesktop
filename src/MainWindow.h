@@ -1,4 +1,63 @@
 #pragma once
+/**
+ * @file MainWindow.h
+ * @brief GasDispersionDesktop 主窗口
+ *
+ * 【设计目的】
+ * 提供Qt GUI界面，让用户能够：
+ * 1. 选择和配置地形（Flat/DEM/Procedural）
+ * 2. 设置模拟参数（风场、扩散、源项、时间）
+ * 3. 预览地形和气体扩散结果
+ * 4. 导出仿真数据（CSV格式）
+ *
+ * 【UI布局】
+ * 采用水平分割布局（QSplitter）：
+ * - 左侧：可滚动的参数配置面板（QScrollArea）
+ *   · Terrain分组：地形模式选择和参数
+ *   · Domain分组：笛卡尔网格参数
+ *   · Vertical分组：垂直网格和切片设置
+ *   · Physics分组：风场和扩散参数
+ *   · Time & Output分组：时间步长和导出设置
+ *   · Visualization分组：可视化模式选择
+ *   · 3D Source分组：泄漏源位置和强度
+ *   · Control分组：运行/暂停/重置按钮和日志
+ *
+ * - 右侧：可视化显示区域
+ *   · 上部：地形/浓度切片渲染视图（QLabel）
+ *   · 底部：状态栏，显示当前模拟状态
+ *
+ * 【坐标系】
+ * 与Simulator3D一致：
+ * - X: 右东
+ * - Y: 向前北（地图惯例）
+ * - Z: 向上
+ * - 单位：米
+ *
+ * 【数据流】
+ * 用户操作 → UI控件 → MainWindow成员变量
+ *                                    ↓
+ *                         buildSimulation()
+ *                                    ↓
+ *                         Simulator3D::initialize()
+ *                                    ↓
+ *                         onTick() [定时器回调]
+ *                                    ↓
+ *                         Simulator3D::step()
+ *                                    ↓
+ *                         Simulator3D::extractSliceXY()
+ *                                    ↓
+ *                         renderTerrainAndSlice()
+ *                                    ↓
+ *                         QLabel显示
+ *
+ * 【关键功能】
+ * - 地形预览：点击Preview Terrain后显示地形渲染
+ * - 仿真控制：Run/Pause/Reset按钮
+ * - 自动居中：非DEM模式下自动将源点移到域中心
+ * - 双切片导出：同时导出zslice和agl两种高度的浓度
+ * - 背景模式：可选地形灰度背景或纯蓝背景
+ */
+
 #include <QtWidgets/QMainWindow>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QDoubleSpinBox>
