@@ -177,7 +177,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     rightLayout->setContentsMargins(6, 6, 6, 6);
 
     view_ = new QLabel();
-    view_->setMinimumSize(900, 650);
+    view_->setMinimumSize(640, 520);
+    view_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     view_->setAlignment(Qt::AlignCenter);
     view_->setText("No terrain yet. Click Preview.");
 
@@ -189,6 +190,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     splitter->setStretchFactor(0, 0);
     splitter->setStretchFactor(1, 1);
+
+    leftScroll_->setMinimumWidth(360);
+    leftInner->setMinimumWidth(340);
+    splitter->setCollapsible(0, false);
+    splitter->setSizes(QList<int>{400, 1000});
+    splitter->setHandleWidth(8);
 
     auto* gbTerrain = new QGroupBox("Terrain", leftInner);
     auto* terrainForm = new QFormLayout(gbTerrain);
