@@ -96,6 +96,8 @@ private:
     QPushButton* btnSetSrcZFromGround_{nullptr};
     QCheckBox* cbAutoCenterSrc_{nullptr};
 
+    QComboBox* cbBackgroundMode_{nullptr};
+
     QDoubleSpinBox* sbDisplayCutoffRel_{nullptr};
 
     QPushButton* btnRun_{nullptr};

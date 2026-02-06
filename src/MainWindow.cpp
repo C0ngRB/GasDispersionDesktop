@@ -11,6 +11,7 @@
 #include <QtWidgets/QFileDialog>
 
 #include <QDir>
+#include <QPainter>
 
 #include <algorithm>
 #include <cmath>
@@ -30,6 +31,22 @@ static QSpinBox* makeSsb(int minV, int maxV, int step, int val) {
     sb->setSingleStep(step);
     sb->setValue(val);
     return sb;
+}
+
+static QImage applyFixedPadding(const QImage& img, double padFrac, const QColor& fill) {
+    const int W = img.width();
+    const int H = img.height();
+    const int padX = (int)std::round(W * padFrac);
+    const int padY = (int)std::round(H * padFrac);
+    const int CW = W + 2 * padX;
+    const int CH = H + 2 * padY;
+
+    QImage canvas(CW, CH, QImage::Format_RGB32);
+    canvas.fill(fill);
+
+    QPainter p(&canvas);
+    p.drawImage(padX, padY, img);
+    return canvas;
 }
 
 MainWindow::TerrainMode MainWindow::terrainMode() const {
@@ -97,35 +114,34 @@ void MainWindow::enforceSourceCenterIfNeeded() {
     }
 }
 
-float MainWindow::groundAtSource() const {
-    const ITerrain* terr = currentTerrain();
-    if (!terr || !terr->isValid()) return 0.0f;
-    const double x = sbSrcX_->value();
-    const double y = sbSrcY_->value();
-    return terr->height(x, y);
-}
-
 double MainWindow::clampSliceToFluid(double z) const {
-    const double dz = std::max(1e-9, sbDz_->value());
-    const double g  = (double)groundAtSource();
-    const double zMinFluid = g + 0.5 * dz + 1e-6;
-    return std::max(z, zMinFluid);
+    if (!terrainPreviewReady_) return z;
+    const double zMin = (double)tMin_;
+    const double zTop = (double)tMax_ + sbZTopMargin_->value();
+    return std::clamp(z, zMin, zTop);
 }
 
 double MainWindow::effectiveZSlice() const {
-    const double zWanted = cbFollowSlice_->isChecked() ? sbSrcZ_->value() : sbZSlice_->value();
-    return clampSliceToFluid(zWanted);
+    double z = sbZSlice_->value();
+    return clampSliceToFluid(z);
 }
 
 double MainWindow::aglSliceZ() const {
-    const double zWanted = (double)groundAtSource() + sbAgl_->value();
-    return clampSliceToFluid(zWanted);
+    const double agl = sbAgl_->value();
+    return clampSliceToFluid((double)groundAtSource() + agl);
 }
 
 int MainWindow::zToK(double z) const {
     const auto& g = sim_.grid();
-    int k = (int)std::llround((z - g.z0) / g.dz);
+    if (g.Nz <= 1) return 0;
+    const double z0 = g.z0;
+    const double dz = g.dz;
+    const int k = (int)std::round((z - z0) / dz);
     return std::clamp(k, 0, g.Nz - 1);
+}
+
+void MainWindow::onFollowSliceToggled(bool on) {
+    if (on) syncSliceWithSourceIfNeeded();
 }
 
 void MainWindow::syncSliceWithSourceIfNeeded() {
@@ -142,116 +158,128 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     auto* central = new QWidget(this);
     setCentralWidget(central);
 
-    auto* splitter = new QSplitter(Qt::Horizontal, central);
+    auto* root = new QVBoxLayout(central);
 
-    auto* leftInner = new QWidget();
-    auto* leftLayout = new QVBoxLayout(leftInner);
+    auto* splitter = new QSplitter(Qt::Horizontal, central);
+    root->addWidget(splitter, 1);
 
     leftScroll_ = new QScrollArea(splitter);
     leftScroll_->setWidgetResizable(true);
+
+    auto* leftInner = new QWidget();
     leftScroll_->setWidget(leftInner);
 
-    auto* gbTerrain = new QGroupBox("Terrain Mode", leftInner);
+    auto* leftLayout = new QVBoxLayout(leftInner);
+    leftLayout->setSpacing(8);
+
+    auto* right = new QWidget(splitter);
+    auto* rightLayout = new QVBoxLayout(right);
+    rightLayout->setContentsMargins(6, 6, 6, 6);
+
+    view_ = new QLabel();
+    view_->setMinimumSize(900, 650);
+    view_->setAlignment(Qt::AlignCenter);
+    view_->setText("No terrain yet. Click Preview.");
+
+    status_ = new QLabel();
+    status_->setText("Ready.");
+
+    rightLayout->addWidget(view_, 1);
+    rightLayout->addWidget(status_, 0);
+
+    splitter->setStretchFactor(0, 0);
+    splitter->setStretchFactor(1, 1);
+
+    auto* gbTerrain = new QGroupBox("Terrain", leftInner);
     auto* terrainForm = new QFormLayout(gbTerrain);
 
     cbTerrainMode_ = new QComboBox(gbTerrain);
-    cbTerrainMode_->addItem("Flat (default)");
+    cbTerrainMode_->addItem("Flat");
     cbTerrainMode_->addItem("DEM (GeoTIFF)");
-    cbTerrainMode_->addItem("Procedural (Gaussian Hill)");
+    cbTerrainMode_->addItem("Procedural");
     terrainForm->addRow("Mode", cbTerrainMode_);
 
-    sbFlatZ_ = makeDsb(-10000.0, 10000.0, 1.0, 0.0, 2);
-    terrainForm->addRow("Flat z0 (m)", sbFlatZ_);
+    leDemTif_ = new QLineEdit(gbTerrain);
+    btnPickDem_ = new QPushButton("Pick DEM .tif", gbTerrain);
+    btnConvertLoadDem_ = new QPushButton("Convert+Load DEM", gbTerrain);
+    sbDemStride_ = makeSsb(1, 50, 1, 2);
+    demInfo_ = new QLabel("DEM: (none)", gbTerrain);
 
-    sbProcBaseZ_ = makeDsb(-10000.0, 10000.0, 1.0, 0.0, 2);
-    sbProcPeakA_ = makeDsb(0.0, 5000.0, 1.0, 50.0, 2);
-    sbProcSigma_ = makeDsb(1.0, 20000.0, 10.0, 200.0, 2);
-    terrainForm->addRow("Proc baseZ (m)", sbProcBaseZ_);
-    terrainForm->addRow("Proc peak A (m)", sbProcPeakA_);
-    terrainForm->addRow("Proc sigma (m)", sbProcSigma_);
+    terrainForm->addRow("DEM path", leDemTif_);
+    terrainForm->addRow(btnPickDem_);
+    terrainForm->addRow("Stride (downsample)", sbDemStride_);
+    terrainForm->addRow(btnConvertLoadDem_);
+    terrainForm->addRow(demInfo_);
+
+    sbFlatZ_ = makeDsb(-1000, 10000, 0.5, 0.0, 2);
+    terrainForm->addRow("Flat z", sbFlatZ_);
+
+    sbProcBaseZ_ = makeDsb(-1000, 10000, 0.5, 0.0, 2);
+    sbProcPeakA_ = makeDsb(0, 1000, 1.0, 100.0, 2);
+    sbProcSigma_ = makeDsb(1, 100000, 1.0, 200.0, 2);
+    terrainForm->addRow("Proc base z", sbProcBaseZ_);
+    terrainForm->addRow("Proc peak A", sbProcPeakA_);
+    terrainForm->addRow("Proc sigma", sbProcSigma_);
 
     btnPreviewTerrain_ = new QPushButton("Preview Terrain", gbTerrain);
     terrainForm->addRow(btnPreviewTerrain_);
 
-    auto* gbDem = new QGroupBox("DEM (GeoTIFF -> meta+bin)", leftInner);
-    auto* demForm = new QFormLayout(gbDem);
+    leftLayout->addWidget(gbTerrain);
 
-    leDemTif_ = new QLineEdit(gbDem);
-    leDemTif_->setPlaceholderText("Select GeoTIFF DEM (.tif, projected meters)");
+    auto* gbDomain = new QGroupBox("Domain (Cartesian)", leftInner);
+    auto* domForm = new QFormLayout(gbDomain);
 
-    btnPickDem_ = new QPushButton("Pick...", gbDem);
-    btnConvertLoadDem_ = new QPushButton("Convert+Load", gbDem);
+    sbX0_ = makeDsb(-1e6, 1e6, 1.0, 0.0, 2);
+    sbY0_ = makeDsb(-1e6, 1e6, 1.0, 0.0, 2);
+    sbLx_ = makeDsb(1.0, 1e6, 1.0, 200.0, 2);
+    sbLy_ = makeDsb(1.0, 1e6, 1.0, 200.0, 2);
+    sbDx_ = makeDsb(0.1, 1000.0, 0.1, 1.0, 2);
+    sbDy_ = makeDsb(0.1, 1000.0, 0.1, 1.0, 2);
+    domainInfo_ = new QLabel("Nx=? Ny=?", gbDomain);
 
-    auto* demRow = new QWidget(gbDem);
-    auto* demRowLayout = new QHBoxLayout(demRow);
-    demRowLayout->addWidget(leDemTif_, 1);
-    demRowLayout->addWidget(btnPickDem_);
-    demRowLayout->addWidget(btnConvertLoadDem_);
-    demForm->addRow("GeoTIFF", demRow);
+    domForm->addRow("x0", sbX0_);
+    domForm->addRow("y0", sbY0_);
+    domForm->addRow("Lx", sbLx_);
+    domForm->addRow("Ly", sbLy_);
+    domForm->addRow("dx", sbDx_);
+    domForm->addRow("dy", sbDy_);
+    domForm->addRow(domainInfo_);
 
-    sbDemStride_ = makeSsb(1, 16, 1, 2);
-    demForm->addRow("Stride (DEM downsample)", sbDemStride_);
+    leftLayout->addWidget(gbDomain);
 
-    demInfo_ = new QLabel("DEM: not loaded", gbDem);
-    demInfo_->setWordWrap(true);
-    demForm->addRow("Info", demInfo_);
-
-    connect(btnPickDem_, &QPushButton::clicked, this, &MainWindow::onPickDemClicked);
-    connect(btnConvertLoadDem_, &QPushButton::clicked, this, &MainWindow::onConvertLoadDemClicked);
-
-    auto* gbDomain = new QGroupBox("XY Domain (used when NOT DEM)", leftInner);
-    auto* domainForm = new QFormLayout(gbDomain);
-
-    sbX0_ = makeDsb(-1e12, 1e12, 10.0, 0.0, 2);
-    sbY0_ = makeDsb(-1e12, 1e12, 10.0, 0.0, 2);
-    sbLx_ = makeDsb(10.0, 1e7, 10.0, 200.0, 1);
-    sbLy_ = makeDsb(10.0, 1e7, 10.0, 100.0, 1);
-    sbDx_ = makeDsb(0.1, 1000.0, 0.1, 2.0, 2);
-    sbDy_ = makeDsb(0.1, 1000.0, 0.1, 2.0, 2);
-
-    domainInfo_ = new QLabel("", gbDomain);
-    domainInfo_->setWordWrap(true);
-
-    domainForm->addRow("x0 (m)", sbX0_);
-    domainForm->addRow("y0 (m)", sbY0_);
-    domainForm->addRow("Lx (m)", sbLx_);
-    domainForm->addRow("Ly (m)", sbLy_);
-    domainForm->addRow("dx (m)", sbDx_);
-    domainForm->addRow("dy (m)", sbDy_);
-    domainForm->addRow("Derived", domainInfo_);
-
-    updateDomainInfo();
-
-    auto* gbZ = new QGroupBox("Vertical Domain", leftInner);
+    auto* gbZ = new QGroupBox("Vertical", leftInner);
     auto* zForm = new QFormLayout(gbZ);
 
-    sbDz_ = makeDsb(0.1, 100.0, 0.1, 2.0, 2);
-    sbZTopMargin_ = makeDsb(1.0, 5000.0, 1.0, 200.0, 1);
-    sbNzMax_ = makeSsb(10, 2000, 10, 300);
-    sbZSlice_ = makeDsb(-1e12, 1e12, 1.0, 2.0, 2);
-    cbFollowSlice_ = new QCheckBox("Slice follows source (zSlice=srcZ)", gbZ);
+    sbDz_ = makeDsb(0.1, 1000.0, 0.1, 1.0, 2);
+    sbZTopMargin_ = makeDsb(0.0, 20000.0, 1.0, 50.0, 2);
+    sbNzMax_ = makeSsb(2, 2000, 1, 120);
+
+    sbZSlice_ = makeDsb(-1000.0, 20000.0, 0.5, 2.0, 2);
+    cbFollowSlice_ = new QCheckBox("Follow slice Z = srcZ", gbZ);
     cbFollowSlice_->setChecked(true);
 
-    zForm->addRow("dz (m)", sbDz_);
-    zForm->addRow("zTop margin (m)", sbZTopMargin_);
+    zForm->addRow("dz", sbDz_);
+    zForm->addRow("Z top margin", sbZTopMargin_);
     zForm->addRow("Nz max", sbNzMax_);
-    zForm->addRow("zSlice (m)", sbZSlice_);
+    zForm->addRow("Z slice", sbZSlice_);
     zForm->addRow(cbFollowSlice_);
 
-    connect(cbFollowSlice_, &QCheckBox::toggled, this, &MainWindow::onFollowSliceToggled);
+    leftLayout->addWidget(gbZ);
 
-    auto* gbPhys = new QGroupBox("Wind & Physics", leftInner);
+    auto* gbPhys = new QGroupBox("Physics", leftInner);
     auto* physForm = new QFormLayout(gbPhys);
 
-    sbWindSpeed_ = makeDsb(0.0, 50.0, 0.1, 2.0, 3);
-    sbWindDir_   = makeDsb(-180.0, 180.0, 1.0, 0.0, 1);
-    sbK_         = makeDsb(0.0, 1e5, 0.1, 1.0, 4);
-    sbDecay_     = makeDsb(0.0, 10.0, 0.001, 0.0, 4);
+    sbWindSpeed_ = makeDsb(0.0, 100.0, 0.1, 2.0, 2);
+    sbWindDir_   = makeDsb(0.0, 360.0, 1.0, 0.0, 1);
+    sbK_         = makeDsb(0.0, 1000.0, 0.01, 2.0, 4);
+    sbDecay_     = makeDsb(0.0, 10.0, 0.001, 0.0, 6);
 
     physForm->addRow("Wind speed (m/s)", sbWindSpeed_);
     physForm->addRow("Wind dir (deg)", sbWindDir_);
     physForm->addRow("K (m^2/s)", sbK_);
-    physForm->addRow("decay k (1/s)", sbDecay_);
+    physForm->addRow("Decay (1/s)", sbDecay_);
+
+    leftLayout->addWidget(gbPhys);
 
     auto* gbTime = new QGroupBox("Time & Output", leftInner);
     auto* timeForm = new QFormLayout(gbTime);
@@ -274,11 +302,27 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     timeForm->addRow("Export interval (s)", sbExportInterval_);
     timeForm->addRow(cbExportTwoSlices_);
 
+    leftLayout->addWidget(gbTime);
+
     auto* gbViz = new QGroupBox("Visualization", leftInner);
     auto* vizForm = new QFormLayout(gbViz);
 
+    cbBackgroundMode_ = new QComboBox(gbViz);
+    cbBackgroundMode_->addItem("Terrain grayscale + concentration overlay");
+    cbBackgroundMode_->addItem("Blue background (concentration only)");
+    cbBackgroundMode_->setCurrentIndex(1);
+    vizForm->addRow("Background", cbBackgroundMode_);
+
     sbDisplayCutoffRel_ = makeDsb(0.0, 0.5, 1e-3, 1e-3, 6);
     vizForm->addRow("Cutoff (relative to sliceMax)", sbDisplayCutoffRel_);
+
+    connect(cbBackgroundMode_, &QComboBox::currentIndexChanged, this, [this](int) {
+        if (simReady_) renderTerrainAndSlice();
+        else renderTerrainOnly();
+    });
+    connect(sbDisplayCutoffRel_, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double) {
+        if (simReady_) renderTerrainAndSlice();
+    });
 
     leftLayout->addWidget(gbViz);
 
@@ -287,106 +331,83 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     sbSrcX_ = makeDsb(-1e12, 1e12, 1.0, 0.0, 2);
     sbSrcY_ = makeDsb(-1e12, 1e12, 1.0, 0.0, 2);
-    sbSrcZ_ = makeDsb(-1e12, 1e12, 1.0, 2.0, 2);
-    sbSrcRadius_ = makeDsb(0.0, 5000.0, 0.5, 2.0, 2);
-    sbLeak_ = makeDsb(0.0, 1e9, 0.1, 1.0, 6);
+    sbSrcZ_ = makeDsb(-1e12, 1e12, 0.5, 2.0, 2);
+    sbSrcRadius_ = makeDsb(0.01, 1000.0, 0.05, 1.0, 2);
+    sbLeak_ = makeDsb(0.0, 1e9, 1.0, 100.0, 2);
+    sbAgl_  = makeDsb(0.0, 20000.0, 0.5, 2.0, 2);
 
-    sbAgl_ = makeDsb(0.0, 2000.0, 0.5, 2.0, 2);
     btnSetSrcZFromGround_ = new QPushButton("Set srcZ = ground + AGL", gbSrc);
-
-    srcForm->addRow("srcX (m)", sbSrcX_);
-    srcForm->addRow("srcY (m)", sbSrcY_);
-    srcForm->addRow("srcZ (m)", sbSrcZ_);
-    srcForm->addRow("radius (m)", sbSrcRadius_);
-    srcForm->addRow("leakRate", sbLeak_);
-    srcForm->addRow("AGL (m)", sbAgl_);
-    srcForm->addRow(btnSetSrcZFromGround_);
 
     cbAutoCenterSrc_ = new QCheckBox("Auto center source in non-DEM (recommended)", gbSrc);
     cbAutoCenterSrc_->setChecked(true);
+
+    srcForm->addRow("srcX", sbSrcX_);
+    srcForm->addRow("srcY", sbSrcY_);
+    srcForm->addRow("srcZ", sbSrcZ_);
+    srcForm->addRow("srcRadius", sbSrcRadius_);
+    srcForm->addRow("Leak strength", sbLeak_);
+    srcForm->addRow("AGL slice (m)", sbAgl_);
+    srcForm->addRow(btnSetSrcZFromGround_);
     srcForm->addRow(cbAutoCenterSrc_);
 
-    connect(btnSetSrcZFromGround_, &QPushButton::clicked, this, &MainWindow::onSetSrcZFromGroundClicked);
+    leftLayout->addWidget(gbSrc);
 
-    auto* btnRow = new QWidget(leftInner);
-    auto* btnLayout = new QHBoxLayout(btnRow);
-    btnRun_ = new QPushButton("Run", btnRow);
-    btnPause_ = new QPushButton("Pause", btnRow);
-    btnReset_ = new QPushButton("Reset", btnRow);
-    btnLayout->addWidget(btnRun_);
-    btnLayout->addWidget(btnPause_);
-    btnLayout->addWidget(btnReset_);
+    auto* gbCtrl = new QGroupBox("Control", leftInner);
+    auto* ctrlLayout = new QVBoxLayout(gbCtrl);
+
+    btnRun_ = new QPushButton("Run", gbCtrl);
+    btnPause_ = new QPushButton("Pause", gbCtrl);
+    btnReset_ = new QPushButton("Reset", gbCtrl);
+
+    ctrlLayout->addWidget(btnRun_);
+    ctrlLayout->addWidget(btnPause_);
+    ctrlLayout->addWidget(btnReset_);
+
+    log_ = new QPlainTextEdit(gbCtrl);
+    log_->setReadOnly(true);
+    log_->setMaximumBlockCount(2000);
+    ctrlLayout->addWidget(log_, 1);
+
+    leftLayout->addWidget(gbCtrl);
+    leftLayout->addStretch(1);
+
+    connect(btnPickDem_, &QPushButton::clicked, this, &MainWindow::onPickDemClicked);
+    connect(btnConvertLoadDem_, &QPushButton::clicked, this, &MainWindow::onConvertLoadDemClicked);
+    connect(btnPreviewTerrain_, &QPushButton::clicked, this, &MainWindow::onPreviewTerrainClicked);
+
+    connect(cbTerrainMode_, &QComboBox::currentIndexChanged, this, &MainWindow::onTerrainParamsChanged);
+
+    connect(sbFlatZ_, qOverload<double>(&QDoubleSpinBox::valueChanged), this, &MainWindow::onTerrainParamsChanged);
+    connect(sbProcBaseZ_, qOverload<double>(&QDoubleSpinBox::valueChanged), this, &MainWindow::onTerrainParamsChanged);
+    connect(sbProcPeakA_, qOverload<double>(&QDoubleSpinBox::valueChanged), this, &MainWindow::onTerrainParamsChanged);
+    connect(sbProcSigma_, qOverload<double>(&QDoubleSpinBox::valueChanged), this, &MainWindow::onTerrainParamsChanged);
+
+    connect(sbX0_, qOverload<double>(&QDoubleSpinBox::valueChanged), this, &MainWindow::onTerrainParamsChanged);
+    connect(sbY0_, qOverload<double>(&QDoubleSpinBox::valueChanged), this, &MainWindow::onTerrainParamsChanged);
+    connect(sbLx_, qOverload<double>(&QDoubleSpinBox::valueChanged), this, &MainWindow::onTerrainParamsChanged);
+    connect(sbLy_, qOverload<double>(&QDoubleSpinBox::valueChanged), this, &MainWindow::onTerrainParamsChanged);
+    connect(sbDx_, qOverload<double>(&QDoubleSpinBox::valueChanged), this, &MainWindow::onTerrainParamsChanged);
+    connect(sbDy_, qOverload<double>(&QDoubleSpinBox::valueChanged), this, &MainWindow::onTerrainParamsChanged);
+
+    connect(btnSetSrcZFromGround_, &QPushButton::clicked, this, &MainWindow::onSetSrcZFromGroundClicked);
 
     connect(btnRun_, &QPushButton::clicked, this, &MainWindow::onRunClicked);
     connect(btnPause_, &QPushButton::clicked, this, &MainWindow::onPauseClicked);
     connect(btnReset_, &QPushButton::clicked, this, &MainWindow::onResetClicked);
 
-    log_ = new QPlainTextEdit(leftInner);
-    log_->setReadOnly(true);
-    log_->setMaximumBlockCount(2000);
-    log_->setPlaceholderText("Log...");
-
-    leftLayout->addWidget(gbTerrain);
-    leftLayout->addWidget(gbDem);
-    leftLayout->addWidget(gbDomain);
-    leftLayout->addWidget(gbZ);
-    leftLayout->addWidget(gbPhys);
-    leftLayout->addWidget(gbTime);
-    leftLayout->addWidget(gbSrc);
-    leftLayout->addWidget(btnRow);
-    leftLayout->addWidget(log_, 1);
-
-    connect(cbTerrainMode_, &QComboBox::currentIndexChanged, this, &MainWindow::onTerrainParamsChanged);
-    connect(sbFlatZ_, &QDoubleSpinBox::valueChanged, this, &MainWindow::onTerrainParamsChanged);
-    connect(sbProcBaseZ_, &QDoubleSpinBox::valueChanged, this, &MainWindow::onTerrainParamsChanged);
-    connect(sbProcPeakA_, &QDoubleSpinBox::valueChanged, this, &MainWindow::onTerrainParamsChanged);
-    connect(sbProcSigma_, &QDoubleSpinBox::valueChanged, this, &MainWindow::onTerrainParamsChanged);
-    connect(sbX0_, &QDoubleSpinBox::valueChanged, this, &MainWindow::onTerrainParamsChanged);
-    connect(sbY0_, &QDoubleSpinBox::valueChanged, this, &MainWindow::onTerrainParamsChanged);
-    connect(sbLx_, &QDoubleSpinBox::valueChanged, this, &MainWindow::onTerrainParamsChanged);
-    connect(sbLy_, &QDoubleSpinBox::valueChanged, this, &MainWindow::onTerrainParamsChanged);
-    connect(sbDx_, &QDoubleSpinBox::valueChanged, this, &MainWindow::onTerrainParamsChanged);
-    connect(sbDy_, &QDoubleSpinBox::valueChanged, this, &MainWindow::onTerrainParamsChanged);
-    connect(sbDemStride_, &QSpinBox::valueChanged, this, &MainWindow::onTerrainParamsChanged);
-    connect(btnPreviewTerrain_, &QPushButton::clicked, this, &MainWindow::onPreviewTerrainClicked);
-
-    auto* right = new QWidget(splitter);
-    auto* rightLayout = new QVBoxLayout(right);
-
-    view_ = new QLabel(right);
-    view_->setMinimumSize(900, 600);
-    view_->setAlignment(Qt::AlignCenter);
-    view_->setText("Preview Terrain, then Run.");
-
-    status_ = new QLabel(right);
-
-    rightLayout->addWidget(view_, 1);
-    rightLayout->addWidget(status_);
-
-    splitter->addWidget(leftScroll_);
-    splitter->addWidget(right);
-    splitter->setStretchFactor(0, 0);
-    splitter->setStretchFactor(1, 1);
-
-    auto* centralLayout = new QVBoxLayout(central);
-    centralLayout->addWidget(splitter);
+    connect(cbFollowSlice_, &QCheckBox::toggled, this, &MainWindow::onFollowSliceToggled);
 
     timer_ = new QTimer(this);
-    timer_->setInterval(33);
+    timer_->setInterval(15);
     connect(timer_, &QTimer::timeout, this, &MainWindow::onTick);
 
-    syncSliceWithSourceIfNeeded();
-    onTerrainParamsChanged();
-}
-
-void MainWindow::onFollowSliceToggled(bool) {
-    syncSliceWithSourceIfNeeded();
-    if (terrainPreviewReady_) renderTerrainOnly();
+    updateDomainInfo();
+    appendLog("[Init] ready. Click Preview Terrain first.");
 }
 
 void MainWindow::onPickDemClicked() {
-    const QString tifPath = QFileDialog::getOpenFileName(this, "Select DEM GeoTIFF", QDir::currentPath(), "GeoTIFF (*.tif *.tiff)");
-    if (!tifPath.isEmpty()) leDemTif_->setText(tifPath);
+    const QString f = QFileDialog::getOpenFileName(this, "Pick DEM GeoTIFF", QDir::currentPath(), "GeoTIFF (*.tif *.tiff)");
+    if (!f.isEmpty()) leDemTif_->setText(f);
 }
 
 void MainWindow::onConvertLoadDemClicked() {
@@ -411,36 +432,20 @@ void MainWindow::onConvertLoadDemClicked() {
 
     if (!dem_.load(metaPath, binPath, err)) {
         appendLog("[DEM] load failed: " + err);
+        demInfo_->setText("DEM: load failed");
+        hasDem_ = false;
         return;
     }
 
     hasDem_ = true;
     const auto& m = dem_.meta();
-    demInfo_->setText(QString("EPSG:%1 | %2x%3 | dx=%4 dy=%5 | z=[%6,%7]")
-                      .arg(m.epsg).arg(m.width).arg(m.height)
-                      .arg(m.dx).arg(m.dy)
+    demInfo_->setText(QString("DEM: ok | z=[%1,%2]")
                       .arg(m.z_min, 0, 'f', 2)
                       .arg(m.z_max, 0, 'f', 2));
-
-    const double cx = (dem_.minX() + dem_.maxX()) * 0.5;
-    const double cy = (dem_.minY() + dem_.maxY()) * 0.5;
-    sbSrcX_->setValue(cx);
-    sbSrcY_->setValue(cy);
-
-    const float gz = dem_.height(cx, cy);
-    sbSrcZ_->setValue(gz + sbAgl_->value());
-
-    syncSliceWithSourceIfNeeded();
-
-    appendLog("[DEM] loaded OK.");
-
-    cbTerrainMode_->setCurrentIndex((int)TerrainMode::Dem);
-    onTerrainParamsChanged();
+    appendLog("[DEM] loaded ok.");
 }
 
 void MainWindow::onTerrainParamsChanged() {
-    updateDomainInfo();
-
     flat_.setZ0((float)sbFlatZ_->value());
 
     const double x0 = sbX0_->value();
@@ -454,22 +459,18 @@ void MainWindow::onTerrainParamsChanged() {
     proc_.setBaseZ((float)sbProcBaseZ_->value());
     proc_.setGaussian(TerrainProcedural::Gaussian{(double)xc, (double)yc, sbProcPeakA_->value(), sbProcSigma_->value()});
 
-    syncSliceWithSourceIfNeeded();
-
-    QString err;
-    if (!buildTerrainPreview(err)) {
-        terrainPreviewReady_ = false;
-        view_->setText("Terrain preview not available.\n" + err);
-        status_->setText(err);
-        return;
-    }
-
-    enforceSourceCenterIfNeeded();
-    renderTerrainOnly();
+    updateDomainInfo();
 }
 
 void MainWindow::onPreviewTerrainClicked() {
-    onTerrainParamsChanged();
+    QString err;
+    if (!buildTerrainPreview(err)) {
+        appendLog("[Terrain] preview failed: " + err);
+        return;
+    }
+    enforceSourceCenterIfNeeded();
+    renderTerrainOnly();
+    appendLog("[Terrain] preview ok.");
 }
 
 bool MainWindow::buildTerrainPreview(QString& errOut) {
@@ -521,8 +522,6 @@ bool MainWindow::buildTerrainPreview(QString& errOut) {
     terrainPreviewReady_ = true;
     return true;
 }
-
-static inline float clamp01(float v) { return std::max(0.0f, std::min(1.0f, v)); }
 
 void MainWindow::renderTerrainOnly() {
     if (!terrainPreviewReady_) return;
@@ -576,14 +575,15 @@ void MainWindow::renderTerrainOnly() {
         }
     }
 
-    view_->setPixmap(QPixmap::fromImage(img).scaled(view_->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    static constexpr double kPad = 0.35;
+    const QImage canvas = applyFixedPadding(img, kPad, QColor(0,0,0));
+    view_->setPixmap(QPixmap::fromImage(canvas).scaled(view_->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
 
-    status_->setText(QString("TERRAIN | mode=%1 | z=[%2,%3] | Nx=%4 Ny=%5 | followSlice=%6")
+    status_->setText(QString("TERRAIN | mode=%1 | z=[%2,%3] | Nx=%4 Ny=%5")
                      .arg(cbTerrainMode_->currentText())
                      .arg(tMin_, 0, 'f', 2)
                      .arg(tMax_, 0, 'f', 2)
-                     .arg(Nx).arg(Ny)
-                     .arg(cbFollowSlice_->isChecked() ? "on" : "off"));
+                     .arg(Nx).arg(Ny));
 }
 
 Simulator3D::Params MainWindow::readSimParams() const {
@@ -603,6 +603,7 @@ Simulator3D::Params MainWindow::readSimParams() const {
     p.srcZ_m = sbSrcZ_->value();
     p.srcRadius_m = sbSrcRadius_->value();
     p.leakRate = sbLeak_->value();
+
     return p;
 }
 
@@ -649,14 +650,23 @@ bool MainWindow::buildSimulation(QString& errOut) {
 
     simReady_ = true;
     running_ = false;
+    timer_->stop();
     nextExportT_ = 0.0;
     frameId_ = 0;
 
     appendLog(QString("[SIM] grid Nx=%1 Ny=%2 Nz=%3 | dx=%4 dy=%5 dz=%6")
               .arg(g.Nx).arg(g.Ny).arg(g.Nz).arg(g.dx).arg(g.dy).arg(g.dz));
-    appendLog(QString("[SIM] stable dt <= %1").arg(sim_.stableDt(), 0, 'g', 6));
 
+    renderTerrainAndSlice();
     return true;
+}
+
+float MainWindow::groundAtSource() const {
+    const ITerrain* terr = currentTerrain();
+    if (!terr || !terr->isValid()) return 0.0f;
+    const double x = sbSrcX_->value();
+    const double y = sbSrcY_->value();
+    return terr->height(x, y);
 }
 
 void MainWindow::renderTerrainAndSlice() {
@@ -695,31 +705,42 @@ void MainWindow::renderTerrainAndSlice() {
         return terrainXY_[(std::size_t)i + (std::size_t)j * Nx];
     };
 
+    const int bgMode = cbBackgroundMode_ ? cbBackgroundMode_->currentIndex() : 0;
+    const QColor kBlueBg(20, 35, 80);
+
     for (int y = 0; y < H; ++y) {
         int j = std::clamp((int)std::round(y * s), 0, Ny - 1);
         for (int x = 0; x < W; ++x) {
             int i = std::clamp((int)std::round(x * s), 0, Nx - 1);
 
-            const float h = Hxy(i,j);
-            const float hn = (h - tMin_) / denomH;
+            double r = 0.0, gch = 0.0, b = 0.0;
 
-            const float dzdx = (Hxy(i+1,j) - Hxy(i-1,j)) / (float)(2.0 * g.dx);
-            const float dzdy = (Hxy(i,j+1) - Hxy(i,j-1)) / (float)(2.0 * g.dy);
+            if (bgMode == 0) {
+                const float h = Hxy(i,j);
+                const float hn = (h - tMin_) / denomH;
 
-            double nx = -dzdx, ny = -dzdy, nz = 1.0;
-            const double nn = std::sqrt(nx*nx + ny*ny + nz*nz);
-            nx/=nn; ny/=nn; nz/=nn;
-            const double intensity = std::max(0.0, nx*Lx + ny*Ly + nz*Lz);
-            const double shade = 0.45 + 0.55 * intensity;
+                const float dzdx = (Hxy(i+1,j) - Hxy(i-1,j)) / (float)(2.0 * g.dx);
+                const float dzdy = (Hxy(i,j+1) - Hxy(i,j-1)) / (float)(2.0 * g.dy);
 
-            int bg = (int)std::round((40.0 + 180.0 * hn) * shade);
-            bg = std::clamp(bg, 0, 255);
+                double nx = -dzdx, ny = -dzdy, nz = 1.0;
+                const double nn = std::sqrt(nx*nx + ny*ny + nz*nz);
+                nx/=nn; ny/=nn; nz/=nn;
+                const double intensity = std::max(0.0, nx*Lx + ny*Ly + nz*Lz);
+                const double shade = 0.45 + 0.55 * intensity;
 
-            double r = bg, gch = bg, b = bg;
+                int bg = (int)std::round((40.0 + 180.0 * hn) * shade);
+                bg = std::clamp(bg, 0, 255);
+
+                r = bg; gch = bg; b = bg;
+            } else {
+                r = kBlueBg.red();
+                gch = kBlueBg.green();
+                b = kBlueBg.blue();
+            }
 
             const float c = slice_[(std::size_t)i + (std::size_t)j * Nx];
             if (c > cCut) {
-                const float cn = clamp01(c / maxC);
+                const float cn = std::max(0.0f, std::min(1.0f, c / maxC));
                 QColor cc = colorMap(cn);
                 const double a = 0.15 + 0.75 * std::sqrt(cn);
                 r = (1.0 - a) * r + a * cc.red();
@@ -731,16 +752,18 @@ void MainWindow::renderTerrainAndSlice() {
         }
     }
 
-    view_->setPixmap(QPixmap::fromImage(img).scaled(view_->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    static constexpr double kPad = 0.35;
+    const QColor padFill = (bgMode == 0) ? QColor(0,0,0) : kBlueBg;
+    const QImage canvas = applyFixedPadding(img, kPad, padFill);
+    view_->setPixmap(QPixmap::fromImage(canvas).scaled(view_->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
 
     const double gsrc = (double)groundAtSource();
     const double zAgl = aglSliceZ();
 
-    status_->setText(QString("SIM | t=%1 s | zEff=%2 (k=%3/%4, z(k)=%5) | sliceMax=%6 | srcZ=%7 | ground=%8 | zAGL=%9")
+    status_->setText(QString("SIM | t=%1 s | zEff=%2 (k=%3/%4) | sliceMax=%5 | srcZ=%6 | ground=%7 | zAGL=%8")
                      .arg(sim_.time(), 0, 'f', 3)
                      .arg(zEff, 0, 'f', 2)
                      .arg(k).arg(g.Nz - 1)
-                     .arg(g.z(k), 0, 'f', 2)
                      .arg(sliceMax_, 0, 'g', 6)
                      .arg(sbSrcZ_->value(), 0, 'f', 2)
                      .arg(gsrc, 0, 'f', 2)
@@ -757,7 +780,8 @@ void MainWindow::onSetSrcZFromGroundClicked() {
     const double newZ = clampSliceToFluid(gz + agl);
     sbSrcZ_->setValue(newZ);
     syncSliceWithSourceIfNeeded();
-    appendLog(QString("[SRC] srcZ = clamp(ground(%.2f)+AGL(%.2f)) => %.2f").arg(gz,0,'f',2).arg(agl,0,'f',2).arg(newZ,0,'f',2));
+    appendLog(QString("[SRC] srcZ = clamp(ground(%.2f)+AGL(%.2f)) => %.2f")
+              .arg(gz,0,'f',2).arg(agl,0,'f',2).arg(newZ,0,'f',2));
 }
 
 void MainWindow::onRunClicked() {
@@ -785,32 +809,28 @@ void MainWindow::onResetClicked() {
     running_ = false;
     timer_->stop();
     if (simReady_) sim_.reset();
-    nextExportT_ = 0.0;
-    frameId_ = 0;
-    renderTerrainAndSlice();
+    simReady_ = false;
     appendLog("[Reset] done.");
+    renderTerrainOnly();
 }
 
 void MainWindow::onTick() {
     if (!running_ || !simReady_) return;
 
+    sim_.step();
+
     const auto p = sim_.params();
-    if (sim_.time() >= p.totalTime_s) {
+    if (sim_.time() >= p.totalTime_s - 1e-12) {
         running_ = false;
         timer_->stop();
-        appendLog("[Done] reached total time.");
+        appendLog("[Run] finished.");
         return;
     }
 
-    for (int s = 0; s < 2; ++s) sim_.step();
-
-    renderTerrainAndSlice();
-
     if (cbExportCsv_->isChecked()) {
         const double t = sim_.time();
-        if (t + 1e-12 >= nextExportT_) {
-            const QString dir = framesDir();
-            QDir().mkpath(dir);
+        if (t >= nextExportT_ - 1e-12) {
+            QDir().mkpath(framesDir());
 
             const auto& g = sim_.grid();
 
@@ -831,15 +851,14 @@ void MainWindow::onTick() {
                 meta.Ny = g.Ny;
                 meta.t  = t;
 
-                const QString path = QDir(dir).filePath(
+                const QString f = QDir(framesDir()).filePath(
                     QString("frame_%1_%2.csv").arg(frameId_, 4, 10, QLatin1Char('0')).arg(suffix)
                 );
                 QString err;
-                if (!ExporterCsv::writeGridFrame(path, meta, grid2d, err)) {
+                if (!ExporterCsv::writeGridFrame(f, meta, grid2d, err)) {
                     appendLog("[CSV] write failed: " + err);
                 } else {
-                    appendLog("[CSV] wrote: " + path + QString(" (k=%1, z=%2, max=%3)")
-                              .arg(k).arg(meta.z,0,'f',2).arg(mx,0,'g',6));
+                    appendLog("[CSV] wrote: " + f);
                 }
             };
 
@@ -855,4 +874,6 @@ void MainWindow::onTick() {
             nextExportT_ += sbExportInterval_->value();
         }
     }
+
+    renderTerrainAndSlice();
 }
