@@ -3,7 +3,9 @@
         {
             "name": "Win32",
             "includePath": [
-                "${workspaceFolder}/**"
+                "${workspaceFolder}/**",
+                "C:/Qt/6.9.3/mingw_64/include/QtCore",
+                "C:/Qt/6.9.3/mingw_64/include"
             ],
             "defines": [
                 "_DEBUG",
@@ -14,7 +16,7 @@
             "cStandard": "c17",
             "cppStandard": "c++17",
             "intelliSenseMode": "windows-gcc-x64",
-            "compilerPath": "C:\\Users\\congr\\Desktop\\GasDispersionDesktop\\build-mingw\\compile_commands.json"
+            "compilerPath": "C:\\trae\\GasDispersionDesktop\\build-mingw\\compile_commands.json"
         }
     ],
     "version": 4
