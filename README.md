@@ -4,11 +4,13 @@
 数值内核为 2D 对流-扩散方程（被动标量）显式有限差分：迎风对流 + 中心差分扩散。
 
 ## 依赖
+
 - Qt 6.x (Widgets)
 - CMake >= 3.20
 - C++17 编译器（MSVC/Clang/GCC）
 
 ## 构建（Windows / Visual Studio）
+
 ```powershell
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release
@@ -22,6 +24,22 @@ cmake --build build --config Release
 
 ---
 
+注意！！！
+导入dem后，先点击convert，这一步需要你的默认python环境有osgeo，gdal和rasterio，让gpt指导你下载一下，不过下载的时候记得关代理不然连不上中报错
+再preview，然后按照下面的值设置domin，
+dx = 12.5
+dy = 12.5(这个是每个网格的大小)
+lx = Nx * dx = 278 * 12.5 = 3475.0 m
+ly = Ny * dy = 191 * 12.5 = 2387.5 m（这个是整个dem的范围）
+用的是UTM坐标系，演示数据的dem左下角的坐标是X0=669886.156，Y0=3547787.750；
+然后会自动计算nx和ny
+
+理论上来说nz_needed=(tMax - tMin + ZtopMargin)/dz只要小于nzmax就可以，但我建议设置nzmax=120，dz不小于4，这样对内存友好
+
+srcx和srcy一定注意是绝对坐标不是相对于x0和y0的坐标，我发你的图用的是srcX ≈ 669886.156 + 1200 = 671086.156以及srcY ≈ 3547787.750 + 800 = 3548587.750
+srcz是气体源的高度，注意一定要比地表高，如果没看见气体的话可以往高了多试试，但是不要高过tmax+ztopmargin这个是地图上界
+其他的不要紧，下面就可以了
+
 ## 1. 坐标系与单位约定（必须看）
 
 - 坐标系：**右手直角坐标系**（Cartesian）
@@ -29,7 +47,7 @@ cmake --build build --config Release
   - **z**：竖直向上（单位 m）
 - 风向定义（`Wind dir (deg)`）：
   - `0°` 指向 **+x** 方向
-  - `90°` 指向 **+y** 方向  
+  - `90°` 指向 **+y** 方向
   （即角度从 +x 轴逆时针旋转）
 - 地形高度 `terrain.height(x,y)` 与源位置 `srcX/srcY/srcZ` 均使用同一套（x,y,z）单位与参考系。
 
@@ -41,7 +59,7 @@ cmake --build build --config Release
 
 程序内部 DEM 格式：
 
-1) `dem_meta.json`（元数据）  
+1) `dem_meta.json`（元数据）
 2) `dem_data.bin`（float32 高程数组，little-endian，row-major）
 
 **dem_meta.json 字段：**
@@ -68,7 +86,7 @@ cmake --build build --config Release
 - `Proc peak A`：峰值高度（例如高斯丘的振幅）
 - `Proc sigma`：尺度（控制坡度与起伏范围）
 
-> 目前实现的生成模式在 `TerrainProcedural.h` 中（Flat / GaussianHill / Ridge / MultiGaussian）。  
+> 目前实现的生成模式在 `TerrainProcedural.h` 中（Flat / GaussianHill / Ridge / MultiGaussian）。
 > 后续要加复杂地形（分形噪声、阶梯、障碍物等），也建议只在这一层扩展。
 
 ### 2.3 默认平地
@@ -152,8 +170,8 @@ cmake --build build --config Release
 
 ### 7.1 显示范围（固定 padding）
 
-为了让羽流看起来不“胖”，渲染时会在图像四周加固定比例 padding。  
-该比例写死在 `MainWindow.cpp` 的 `kPad = 0.35`（**不是控件**）。  
+为了让羽流看起来不“胖”，渲染时会在图像四周加固定比例 padding。
+该比例写死在 `MainWindow.cpp` 的 `kPad = 0.35`（**不是控件**）。
 如需更大范围，直接调大该常量。
 
 ---
@@ -171,7 +189,7 @@ cmake --build build --config Release
 ## 9. 构建说明（强烈建议统一工具链）
 
 你必须保证 **编译器** 与 **Qt 套件**匹配，否则会出现典型错误：
-> “Qt requires a C++17 compiler … On MSVC, you must pass /Zc:__cplusplus …”  
+> “Qt requires a C++17 compiler … On MSVC, you must pass /Zc:__cplusplus …”
 （根因是：用 MSVC 生成器却指向了 Qt MinGW 头文件/库）
 
 ### 9.1 使用 Qt MinGW 套件（推荐你当前环境）
@@ -193,3 +211,4 @@ cmake --build build --config Release
 - 以 `#` 开头的三行元数据（CRS、origin、分辨率、t 等）
 - 后续 Ny 行、每行 Nx 个数值（逗号分隔）
 
+```
