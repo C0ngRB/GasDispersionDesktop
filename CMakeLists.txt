@@ -61,13 +61,20 @@ set(SOURCES
     src/main.cpp
     src/MainWindow.cpp
     src/Simulator3D.cpp
+    src/Simulator.cpp
     src/TerrainDem.cpp
     src/ExporterCsv.cpp
+    src/PlumeEngine.cpp
+    src/GaussianPlumeModel.cpp
+    src/GaussianPuffModel.cpp
+    src/CsvFrameReader.cpp
+    src/ExternalCfdBackend.cpp
 )
 
 set(HEADERS
     src/MainWindow.h
     src/Simulator3D.h
+    src/Simulator.h
     src/Grid3D.h
     src/ITerrain.h
     src/TerrainDem.h
@@ -75,6 +82,11 @@ set(HEADERS
     src/TerrainProcedural.h
     src/ColorMap.h
     src/ExporterCsv.h
+    src/PlumeEngine.h
+    src/GaussianPlumeModel.h
+    src/GaussianPuffModel.h
+    src/CsvFrameReader.h
+    src/ExternalCfdBackend.h
 )
 
 add_executable(GasDispersionDesktop ${SOURCES} ${HEADERS})

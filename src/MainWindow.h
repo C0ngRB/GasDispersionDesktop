@@ -38,13 +38,13 @@
  *                                    ↓
  *                         buildSimulation()
  *                                    ↓
- *                         Simulator3D::initialize()
+ *                         PlumeEngine::initialize()
  *                                    ↓
  *                         onTick() [定时器回调]
  *                                    ↓
- *                         Simulator3D::step()
+ *                         PlumeEngine::step()
  *                                    ↓
- *                         Simulator3D::extractSliceXY()
+ *                         PlumeEngine::extractSliceXY()
  *                                    ↓
  *                         renderTerrainAndSlice()
  *                                    ↓
@@ -56,6 +56,7 @@
  * - 自动居中：非DEM模式下自动将源点移到域中心
  * - 双切片导出：同时导出zslice和agl两种高度的浓度
  * - 背景模式：可选地形灰度背景或纯蓝背景
+ * - 模型选择：CFD / Gaussian plume / Gaussian puff
  */
 
 #include <QtWidgets/QMainWindow>
@@ -75,137 +76,144 @@
 #include "TerrainDem.h"
 #include "TerrainFlat.h"
 #include "TerrainProcedural.h"
-#include "Simulator3D.h"
+#include "PlumeEngine.h"
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
-    explicit MainWindow(QWidget* parent = nullptr);
+    explicit MainWindow(QWidget *parent = nullptr);
+
+private:
+    enum class TerrainMode
+    {
+        Flat = 0,
+        Dem = 1,
+        Procedural = 2,
+    };
+
+    TerrainMode terrainMode() const;
+    const ITerrain *currentTerrain() const;
+
+    QString framesDir() const;
+
+    PlumeEngine::ModelType selectedModelType() const;
+    QString selectedModelTag() const;
+
+    void appendLog(const QString &s);
+
+    void updateDomainInfo();
+    void enforceSourceCenterIfNeeded();
+
+    bool buildTerrainPreview(QString &err);
+    bool buildSimulation(QString &err);
+
+    void renderTerrainOnly();
+    void renderTerrainAndSlice();
+
+    int zToK(double zWorld) const;
+    double groundAtSource() const;
+    double sliceZ() const;
 
 private slots:
     void onPickDemClicked();
     void onConvertLoadDemClicked();
-    void onTerrainParamsChanged();
     void onPreviewTerrainClicked();
 
+    void onTerrainParamsChanged();
+    void onFollowSliceToggled(bool);
+
     void onSetSrcZFromGroundClicked();
+
     void onRunClicked();
     void onPauseClicked();
     void onResetClicked();
+    void onModelChanged(int);
     void onTick();
 
-    void onFollowSliceToggled(bool on);
-
 private:
-    enum class TerrainMode { Flat = 0, Dem = 1, Procedural = 2 };
+    // left UI
+    QScrollArea *leftScroll_ = nullptr;
+    QComboBox *cbTerrainMode_ = nullptr;
 
-    QLabel* view_{nullptr};
-    QLabel* status_{nullptr};
+    QDoubleSpinBox *sbFlatZ_ = nullptr;
+    QDoubleSpinBox *sbProcBaseZ_ = nullptr;
+    QDoubleSpinBox *sbProcPeakA_ = nullptr;
+    QDoubleSpinBox *sbProcSigma_ = nullptr;
 
-    QScrollArea* leftScroll_{nullptr};
+    QLineEdit *leDemTif_ = nullptr;
+    QPushButton *btnPickDem_ = nullptr;
+    QPushButton *btnConvertLoadDem_ = nullptr;
+    QPushButton *btnPreviewTerrain_ = nullptr;
 
-    QComboBox* cbTerrainMode_{nullptr};
+    QDoubleSpinBox *sbX0_ = nullptr;
+    QDoubleSpinBox *sbY0_ = nullptr;
+    QDoubleSpinBox *sbLx_ = nullptr;
+    QDoubleSpinBox *sbLy_ = nullptr;
+    QDoubleSpinBox *sbDx_ = nullptr;
+    QDoubleSpinBox *sbDy_ = nullptr;
+    QLabel *domainInfo_ = nullptr;
 
-    QLineEdit* leDemTif_{nullptr};
-    QPushButton* btnPickDem_{nullptr};
-    QPushButton* btnConvertLoadDem_{nullptr};
-    QSpinBox* sbDemStride_{nullptr};
-    QLabel* demInfo_{nullptr};
+    QDoubleSpinBox *sbDz_ = nullptr;
+    QDoubleSpinBox *sbZTopMargin_ = nullptr;
+    QSpinBox *sbNzMax_ = nullptr;
 
-    QDoubleSpinBox* sbFlatZ_{nullptr};
+    QDoubleSpinBox *sbZSlice_ = nullptr;
+    QCheckBox *cbFollowSlice_ = nullptr;
 
-    QDoubleSpinBox* sbProcBaseZ_{nullptr};
-    QDoubleSpinBox* sbProcPeakA_{nullptr};
-    QDoubleSpinBox* sbProcSigma_{nullptr};
+    QComboBox *cbModel_ = nullptr;
+    QDoubleSpinBox *sbWindSpeed_ = nullptr;
+    QDoubleSpinBox *sbWindDir_ = nullptr;
+    QDoubleSpinBox *sbK_ = nullptr;
+    QDoubleSpinBox *sbDecay_ = nullptr;
 
-    QPushButton* btnPreviewTerrain_{nullptr};
+    QDoubleSpinBox *sbTotalTime_ = nullptr;
+    QDoubleSpinBox *sbDt_ = nullptr;
+    QCheckBox *cbAutoClampDt_ = nullptr;
+    QCheckBox *cbExportCsv_ = nullptr;
+    QDoubleSpinBox *sbExportInterval_ = nullptr;
+    QCheckBox *cbExportTwoSlices_ = nullptr;
 
-    QDoubleSpinBox* sbX0_{nullptr};
-    QDoubleSpinBox* sbY0_{nullptr};
-    QDoubleSpinBox* sbLx_{nullptr};
-    QDoubleSpinBox* sbLy_{nullptr};
-    QDoubleSpinBox* sbDx_{nullptr};
-    QDoubleSpinBox* sbDy_{nullptr};
-    QLabel* domainInfo_{nullptr};
+    QComboBox *cbBgMode_ = nullptr;
+    QDoubleSpinBox *sbRelCut_ = nullptr;
 
-    QDoubleSpinBox* sbDz_{nullptr};
-    QDoubleSpinBox* sbZTopMargin_{nullptr};
-    QSpinBox* sbNzMax_{nullptr};
-    QDoubleSpinBox* sbZSlice_{nullptr};
-    QCheckBox* cbFollowSlice_{nullptr};
+    QDoubleSpinBox *sbSrcX_ = nullptr;
+    QDoubleSpinBox *sbSrcY_ = nullptr;
+    QDoubleSpinBox *sbSrcZ_ = nullptr;
+    QDoubleSpinBox *sbSrcR_ = nullptr;
+    QDoubleSpinBox *sbLeakRate_ = nullptr;
+    QPushButton *btnSetSrcZFromGround_ = nullptr;
+    QCheckBox *cbAutoCenterSrc_ = nullptr;
 
-    QDoubleSpinBox* sbWindSpeed_{nullptr};
-    QDoubleSpinBox* sbWindDir_{nullptr};
-    QDoubleSpinBox* sbK_{nullptr};
-    QDoubleSpinBox* sbDecay_{nullptr};
+    QPushButton *btnRun_ = nullptr;
+    QPushButton *btnPause_ = nullptr;
+    QPushButton *btnReset_ = nullptr;
 
-    QDoubleSpinBox* sbTotalTime_{nullptr};
-    QDoubleSpinBox* sbDt_{nullptr};
-    QCheckBox* cbAutoClampDt_{nullptr};
-    QCheckBox* cbExportCsv_{nullptr};
-    QDoubleSpinBox* sbExportInterval_{nullptr};
-    QCheckBox* cbExportTwoSlices_{nullptr};
+    QPlainTextEdit *log_ = nullptr;
 
-    QDoubleSpinBox* sbSrcX_{nullptr};
-    QDoubleSpinBox* sbSrcY_{nullptr};
-    QDoubleSpinBox* sbSrcZ_{nullptr};
-    QDoubleSpinBox* sbSrcRadius_{nullptr};
-    QDoubleSpinBox* sbLeak_{nullptr};
-    QDoubleSpinBox* sbAgl_{nullptr};
-    QPushButton* btnSetSrcZFromGround_{nullptr};
-    QCheckBox* cbAutoCenterSrc_{nullptr};
+    // right UI
+    QLabel *view_ = nullptr;
+    QLabel *status_ = nullptr;
 
-    QComboBox* cbBackgroundMode_{nullptr};
+    QTimer *timer_ = nullptr;
 
-    QDoubleSpinBox* sbDisplayCutoffRel_{nullptr};
-
-    QPushButton* btnRun_{nullptr};
-    QPushButton* btnPause_{nullptr};
-    QPushButton* btnReset_{nullptr};
-    QPlainTextEdit* log_{nullptr};
-
+    // terrain data
+    TerrainFlat flat_;
+    TerrainProcedural proc_;
     TerrainDem dem_;
-    bool hasDem_{false};
+    bool hasDem_ = false;
 
-    TerrainFlat flat_{0.0f};
-    TerrainProcedural proc_{};
+    bool terrainPreviewReady_ = false;
+    int tNx_ = 0, tNy_ = 0;
+    double tx0_ = 0, ty0_ = 0;
+    double tdx_ = 1, tdy_ = 1;
+    std::vector<float> terrainZ_;
+    double tMin_ = 0, tMax_ = 0;
 
-    bool terrainPreviewReady_{false};
-    int tNx_{0}, tNy_{0};
-    double tx0_{0}, ty0_{0}, tdx_{1}, tdy_{1};
-    float tMin_{0.0f}, tMax_{0.0f};
-    std::vector<float> terrainXY_;
+    // simulation state
+    PlumeEngine engine_;
+    bool simReady_ = false;
+    bool running_ = false;
 
-    Simulator3D sim_;
-    bool simReady_{false};
-    QTimer* timer_{nullptr};
-    bool running_{false};
-
-    double nextExportT_{0.0};
-    int frameId_{0};
-
-    std::vector<float> slice_;
-    float sliceMax_{0.0f};
-
-    void appendLog(const QString& s);
-    QString framesDir() const;
-
-    TerrainMode terrainMode() const;
-    const ITerrain* currentTerrain() const;
-
-    void updateDomainInfo();
-    bool buildTerrainPreview(QString& errOut);
-    void renderTerrainOnly();
-    void renderTerrainAndSlice();
-
-    bool buildSimulation(QString& errOut);
-    Simulator3D::Params readSimParams() const;
-
-    float groundAtSource() const;
-    double clampSliceToFluid(double z) const;
-    double effectiveZSlice() const;
-    double aglSliceZ() const;
-    int zToK(double z) const;
-    void syncSliceWithSourceIfNeeded();
-    void enforceSourceCenterIfNeeded();
+    double nextExportT_ = 0.0;
+    int exportFrameIdx_ = 0;
 };
